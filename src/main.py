@@ -5,20 +5,22 @@ import argparse
 
 parser = argparse.ArgumentParser()
 
-glove_word_file = "glove.840B.300d.txt"
+data_dir = '../data'
 
-word_emb_file = "word_emb.json"
-char_emb_file = "char_emb.json"
-train_eval = "train_eval.json"
-dev_eval = "dev_eval.json"
-test_eval = "test_eval.json"
-word2idx_file = "word2idx.json"
-char2idx_file = "char2idx.json"
-idx2word_file = 'idx2word.json'
-idx2char_file = 'idx2char.json'
-train_record_file = 'train_record.pkl'
-dev_record_file = 'dev_record.pkl'
-test_record_file = 'test_record.pkl'
+glove_word_file = os.path.join(data_dir, "glove.840B.300d.txt")
+
+word_emb_file = os.path.join(data_dir, "word_emb.json")
+char_emb_file = os.path.join(data_dir, "char_emb.json")
+train_eval =  os.path.join(data_dir, "train_eval.json")
+dev_eval = os.path.join(data_dir, "dev_eval.json")
+test_eval = os.path.join(data_dir, "test_eval.json")
+word2idx_file = os.path.join(data_dir, "word2idx.json")
+char2idx_file = os.path.join(data_dir, "char2idx.json")
+idx2word_file = os.path.join(data_dir, 'idx2word.json')
+idx2char_file = os.path.join(data_dir, 'idx2char.json')
+train_record_file = os.path.join(data_dir, 'train_record.pkl')
+dev_record_file = os.path.join(data_dir, 'dev_record.pkl')
+test_record_file = os.path.join(data_dir, 'test_record.pkl')
 
 
 parser.add_argument('--mode', type=str, default='train')
