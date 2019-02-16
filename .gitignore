@@ -7,3 +7,17 @@ data/hotpot_train_v1.1.json
 experiment/
 /data/glove.840B.300d.txt
 /data/glove.6B.50d.txt
+data/char2idx.json
+data/char_emb.json
+data/dev_eval.json
+data/dev_record.pkl
+data/fullwiki.dev_eval.json
+data/fullwiki.dev_record.pkl
+data/fullwiki.test_eval.json
+data/fullwiki.test_record.pkl
+data/hotpot_test_fullwiki_v1.json
+data/idx2char.json
+data/idx2word.json
+data/word2idx.json
+data/word_emb.json
+src/__pycache__/
