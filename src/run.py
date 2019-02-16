@@ -116,7 +116,7 @@ def train(config):
             loss.backward()
             optimizer.step()
 
-            total_loss += loss.data[0]
+            total_loss += loss.item()
             global_step += 1
 
             if global_step % config.period == 0:
@@ -182,7 +182,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
         answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
         answer_dict.update(answer_dict_)
 
-        total_loss += loss.data[0]
+        total_loss += loss.item()
         step_cnt += 1
     loss = total_loss / step_cnt
     metrics = evaluate(eval_file, answer_dict)
