@@ -73,7 +73,8 @@ config = parser.parse_args()
 
 def _concat(filename):
     if config.fullwiki:
-        return 'fullwiki.{}'.format(filename)
+        path, name = os.path.split(filename)
+        return os.path.join(path, 'fullwiki.{}'.format(name))
     return filename
 # config.train_record_file = _concat(config.train_record_file)
 config.dev_record_file = _concat(config.dev_record_file)
