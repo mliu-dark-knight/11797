@@ -26,7 +26,7 @@ test_record_file = os.path.join(data_dir, 'test_record.pkl')
 parser.add_argument('--mode', type=str, default='train')
 parser.add_argument('--data_file', type=str)
 parser.add_argument('--glove_word_file', type=str, default=glove_word_file)
-parser.add_argument('--save', type=str, default='HOTPOT')
+parser.add_argument('--save', type=str, default='../experiment/HOTPOT')
 
 parser.add_argument('--word_emb_file', type=str, default=word_emb_file)
 parser.add_argument('--char_emb_file', type=str, default=char_emb_file)
