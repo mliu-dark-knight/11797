@@ -137,8 +137,8 @@ def train(config):
                 logging('-' * 89)
 
                 eval_start_time = time.time()
+
                 dev_F1 = metrics['f1']
-                
                 if best_dev_F1 is None or dev_F1 > best_dev_F1:
                     best_dev_F1 = dev_F1
                     torch.save(ori_model.state_dict(), os.path.join(config.save, 'model.pt'))
@@ -164,19 +164,18 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
     for step, data in enumerate(iter):
         if step >= max_batches and max_batches > 0: break
 
-        with torch.no_grad():
-            context_idxs = Variable(data['context_idxs'])
-            ques_idxs = Variable(data['ques_idxs'])
-            context_char_idxs = Variable(data['context_char_idxs'])
-            ques_char_idxs = Variable(data['ques_char_idxs'])
-            context_lens = Variable(data['context_lens'])
-            y1 = Variable(data['y1'])
-            y2 = Variable(data['y2'])
-            q_type = Variable(data['q_type'])
-            is_support = Variable(data['is_support'])
-            start_mapping = Variable(data['start_mapping'])
-            end_mapping = Variable(data['end_mapping'])
-            all_mapping = Variable(data['all_mapping'])
+        context_idxs = Variable(data['context_idxs'], volatile=True)
+        ques_idxs = Variable(data['ques_idxs'], volatile=True)
+        context_char_idxs = Variable(data['context_char_idxs'], volatile=True)
+        ques_char_idxs = Variable(data['ques_char_idxs'], volatile=True)
+        context_lens = Variable(data['context_lens'], volatile=True)
+        y1 = Variable(data['y1'], volatile=True)
+        y2 = Variable(data['y2'], volatile=True)
+        q_type = Variable(data['q_type'], volatile=True)
+        is_support = Variable(data['is_support'], volatile=True)
+        start_mapping = Variable(data['start_mapping'], volatile=True)
+        end_mapping = Variable(data['end_mapping'], volatile=True)
+        all_mapping = Variable(data['all_mapping'], volatile=True)
 
         logit1, logit2, predict_type, predict_support, yp1, yp2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
         loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) + config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
@@ -196,15 +195,14 @@ def predict(data_source, model, eval_file, config, prediction_file):
     sp_dict = {}
     sp_th = config.sp_threshold
     for step, data in enumerate(tqdm(data_source)):
-        with torch.no_grad():
-            context_idxs = Variable(data['context_idxs'])
-            ques_idxs = Variable(data['ques_idxs'])
-            context_char_idxs = Variable(data['context_char_idxs'])
-            ques_char_idxs = Variable(data['ques_char_idxs'])
-            context_lens = Variable(data['context_lens'])
-            start_mapping = Variable(data['start_mapping'])
-            end_mapping = Variable(data['end_mapping'])
-            all_mapping = Variable(data['all_mapping'])
+        context_idxs = Variable(data['context_idxs'], volatile=True)
+        ques_idxs = Variable(data['ques_idxs'], volatile=True)
+        context_char_idxs = Variable(data['context_char_idxs'], volatile=True)
+        ques_char_idxs = Variable(data['ques_char_idxs'], volatile=True)
+        context_lens = Variable(data['context_lens'], volatile=True)
+        start_mapping = Variable(data['start_mapping'], volatile=True)
+        end_mapping = Variable(data['end_mapping'], volatile=True)
+        all_mapping = Variable(data['all_mapping'], volatile=True)
 
         logit1, logit2, predict_type, predict_support, yp1, yp2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
         answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
