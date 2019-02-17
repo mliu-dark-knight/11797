@@ -48,7 +48,7 @@ class SPModel(nn.Module):
         self.linear_end = nn.Linear(config.hidden*2, 1)
 
         self.rnn_type = EncoderRNN(config.hidden*3, config.hidden, 1, False, True, 1-config.keep_prob, False)
-        self.linear_type = nn.Linear(config.hidden*2, 3)
+        self.linear_type = nn.Linear(config.hidden*2, 4)
 
         self.cache_S = 0
 
