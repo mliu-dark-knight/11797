@@ -35,8 +35,11 @@ nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
 nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 
 def train(config):
-    with open(config.word_emb_file, "r") as fh:
-        word_mat = np.array(json.load(fh), dtype=np.float32)
+    if config.debug:
+        word_mat = np.random.rand(395261, 300)
+    else:
+        with open(config.word_emb_file, "r") as fh:
+            word_mat = np.array(json.load(fh), dtype=np.float32)
     with open(config.char_emb_file, "r") as fh:
         char_mat = np.array(json.load(fh), dtype=np.float32)
     with open(config.dev_eval_file, "r") as fh:
@@ -67,10 +70,10 @@ def train(config):
     dev_buckets = get_buckets(config.dev_record_file)
 
     def build_train_iterator():
-        return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, True, config.sent_limit)
+        return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, True, config.sent_limit, debug=config.debug)
 
     def build_dev_iterator():
-        return DataIterator(dev_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit)
+        return DataIterator(dev_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit, debug=config.debug)
 
     if config.sp_lambda > 0:
         model = SPModel(config, word_mat, char_mat)
@@ -78,7 +81,7 @@ def train(config):
         model = Model(config, word_mat, char_mat)
 
     logging('nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
-    ori_model = model.cuda()
+    ori_model = model if config.debug else model.cuda()
     model = nn.DataParallel(ori_model)
 
     lr = config.init_lr
@@ -261,13 +264,13 @@ def test(config):
 
     def build_dev_iterator():
         return DataIterator(dev_buckets, config.batch_size, para_limit,
-            ques_limit, config.char_limit, False, config.sent_limit)
+            ques_limit, config.char_limit, False, config.sent_limit, debug=config.debug)
 
     if config.sp_lambda > 0:
         model = SPModel(config, word_mat, char_mat)
     else:
         model = Model(config, word_mat, char_mat)
-    ori_model = model.cuda()
+    ori_model = model if config.debug else model.cuda()
     ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
     model = nn.DataParallel(ori_model)
 

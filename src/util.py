@@ -20,7 +20,7 @@ def prepro(token):
     return token if not has_digit(token) else 'N'
 
 class DataIterator(object):
-    def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, sent_limit):
+    def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, sent_limit, debug=False):
         self.buckets = buckets
         self.bsz = bsz
         if para_limit is not None and ques_limit is not None:
@@ -43,19 +43,32 @@ class DataIterator(object):
                 random.shuffle(self.buckets[i])
         self.bkt_ptrs = [0 for i in range(self.num_buckets)]
         self.shuffle = shuffle
+        self.debug = debug
 
     def __iter__(self):
-        context_idxs = torch.LongTensor(self.bsz, self.para_limit).cuda()
-        ques_idxs = torch.LongTensor(self.bsz, self.ques_limit).cuda()
-        context_char_idxs = torch.LongTensor(self.bsz, self.para_limit, self.char_limit).cuda()
-        ques_char_idxs = torch.LongTensor(self.bsz, self.ques_limit, self.char_limit).cuda()
-        y1 = torch.LongTensor(self.bsz).cuda()
-        y2 = torch.LongTensor(self.bsz).cuda()
-        q_type = torch.LongTensor(self.bsz).cuda()
-        start_mapping = torch.Tensor(self.bsz, self.para_limit, self.sent_limit).cuda()
-        end_mapping = torch.Tensor(self.bsz, self.para_limit, self.sent_limit).cuda()
-        all_mapping = torch.Tensor(self.bsz, self.para_limit, self.sent_limit).cuda()
-        is_support = torch.LongTensor(self.bsz, self.sent_limit).cuda()
+        context_idxs = torch.LongTensor(self.bsz, self.para_limit)
+        ques_idxs = torch.LongTensor(self.bsz, self.ques_limit)
+        context_char_idxs = torch.LongTensor(self.bsz, self.para_limit, self.char_limit)
+        ques_char_idxs = torch.LongTensor(self.bsz, self.ques_limit, self.char_limit)
+        y1 = torch.LongTensor(self.bsz)
+        y2 = torch.LongTensor(self.bsz)
+        q_type = torch.LongTensor(self.bsz)
+        start_mapping = torch.Tensor(self.bsz, self.para_limit, self.sent_limit)
+        end_mapping = torch.Tensor(self.bsz, self.para_limit, self.sent_limit)
+        all_mapping = torch.Tensor(self.bsz, self.para_limit, self.sent_limit)
+        is_support = torch.LongTensor(self.bsz, self.sent_limit)
+        if not self.debug:
+            context_idxs = context_idxs.cuda()
+            ques_idxs = ques_idxs.cuda()
+            context_char_idxs = context_char_idxs.cuda()
+            ques_char_idxs = ques_char_idxs.cuda()
+            y1 = y1.cuda()
+            y2 = y2.cuda()
+            q_type = q_type.cuda()
+            start_mapping = start_mapping.cuda()
+            end_mapping = end_mapping.cuda()
+            all_mapping = all_mapping.cuda()
+            is_support = is_support.cuda()
 
         while True:
             if len(self.bkt_pool) == 0: break
