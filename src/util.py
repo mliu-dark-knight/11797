@@ -83,13 +83,8 @@ class DataIterator(object):
             cur_batch.sort(key=lambda x: (x['context_idxs'] > 0).long().sum(), reverse=True)
 
             max_sent_cnt = 0
-            for idxs in [context_idxs, ques_idxs, context_char_idxs, ques_char_idxs]:
-                idxs.zero_()
             for mapping in [start_mapping, end_mapping, all_mapping]:
                 mapping.zero_()
-            for y in [y1, y2]:
-                y.fill_(IGNORE_INDEX)
-            q_type.fill_(IGNORE_INDEX)
             is_support.fill_(IGNORE_INDEX)
 
             for i in range(len(cur_batch)):
