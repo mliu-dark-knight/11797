@@ -1,14 +1,9 @@
-import torch
-import numpy as np
-import re
-from collections import Counter
-import string
-import pickle
 import random
-from torch.autograd import Variable
-import copy
-import ujson as json
-import traceback
+import re
+import string
+from collections import Counter
+
+import torch
 
 IGNORE_INDEX = -100
 

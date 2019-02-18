@@ -1,12 +1,11 @@
 
-import torch
-from torch.autograd import Variable
-from torch import nn
-from torch.nn import functional as F
 import numpy as np
-import math
-from torch.nn import init
+import torch
+from torch import nn
+from torch.autograd import Variable
+from torch.nn import functional as F
 from torch.nn.utils import rnn
+
 
 class SPModel(nn.Module):
     def __init__(self, config, word_mat, char_mat):

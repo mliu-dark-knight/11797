@@ -1,7 +1,8 @@
+import argparse
 import os
+
 from prepro import prepro
 from run import train, test
-import argparse
 
 parser = argparse.ArgumentParser()
 

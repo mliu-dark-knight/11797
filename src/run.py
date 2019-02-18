@@ -1,22 +1,20 @@
-import ujson as json
-import numpy as np
-from tqdm import tqdm
 import os
+import random
+import shutil
+import time
+import ujson as json
+
+import numpy as np
+import torch
 from torch import optim, nn
-from model import Model #, NoCharModel, NoSelfModel
+from torch.autograd import Variable
+from tqdm import tqdm
+
+from model import Model
 from sp_model import SPModel
-# from normal_model import NormalModel, NoSelfModel, NoCharModel, NoSentModel
-# from oracle_model import OracleModel, OracleModelV2
-# from util import get_record_parser, convert_tokens, evaluate, get_batch_dataset, get_dataset
 from util import convert_tokens, evaluate
 from util import get_buckets, DataIterator, IGNORE_INDEX
-import time
-import shutil
-import random
-import torch
-from torch.autograd import Variable
-import sys
-from torch.nn import functional as F
+
 
 def create_exp_dir(path, scripts_to_save=None):
     if not os.path.exists(path):
@@ -70,7 +68,7 @@ def train(config):
     dev_buckets = get_buckets(config.dev_record_file)
 
     def build_train_iterator():
-        return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug)
+        return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, True, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug)
 
     def build_dev_iterator():
         return DataIterator(dev_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug)

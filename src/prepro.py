@@ -1,18 +1,14 @@
+import os
+import os.path
 import random
-from tqdm import tqdm
-import spacy
 import ujson as json
 from collections import Counter
-import numpy as np
-import os.path
-import argparse
-import torch
-# import pickle
-import torch
-import os
-from joblib import Parallel, delayed
 
+import numpy as np
+import spacy
 import torch
+from joblib import Parallel, delayed
+from tqdm import tqdm
 
 nlp = spacy.blank("en")
 
