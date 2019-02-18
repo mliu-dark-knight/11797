@@ -170,13 +170,25 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
         print(step)
 
         context_idxs = Variable(data['context_idxs'])
-        assert (context_idxs.cpu().data.numpy() >= 0).all() and (context_idxs.cpu().data.numpy() < 395261).all()
+        try:
+            assert (context_idxs.cpu().data.numpy() >= 0).all() and (context_idxs.cpu().data.numpy() < 395261).all()
+        except:
+            print(np.max(context_idxs.cpu().data.numpy()), np.min(context_idxs.cpu().data.numpy()))
         ques_idxs = Variable(data['ques_idxs'])
-        assert (ques_idxs.cpu().data.numpy() >= 0).all() and (ques_idxs.cpu().data.numpy() < 395261).all()
+        try:
+            assert (ques_idxs.cpu().data.numpy() >= 0).all() and (ques_idxs.cpu().data.numpy() < 395261).all()
+        except:
+            print(np.max(ques_idxs.cpu().data.numpy()), np.min(ques_idxs.cpu().data.numpy()))
         context_char_idxs = Variable(data['context_char_idxs'])
-        assert (context_char_idxs.cpu().data.numpy() >= 0).all() and (context_char_idxs.cpu().data.numpy() < 6964).all()
+        try:
+            assert (context_char_idxs.cpu().data.numpy() >= 0).all() and (context_char_idxs.cpu().data.numpy() < 6964).all()
+        except:
+            print(np.max(context_char_idxs.cpu().data.numpy()), np.min(context_char_idxs.cpu().data.numpy()))
         ques_char_idxs = Variable(data['ques_char_idxs'])
-        assert (ques_char_idxs.cpu().data.numpy() >= 0).all() and (ques_char_idxs.cpu().data.numpy() < 6964).all()
+        try:
+            assert (ques_char_idxs.cpu().data.numpy() >= 0).all() and (ques_char_idxs.cpu().data.numpy() < 6964).all()
+        except:
+            print(np.max(ques_char_idxs.cpu().data.numpy()), np.min(ques_char_idxs.cpu().data.numpy()))
         context_lens = Variable(data['context_lens'])
         y1 = Variable(data['y1'])
         y2 = Variable(data['y2'])
