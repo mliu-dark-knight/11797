@@ -167,6 +167,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
     iter = data_source
     for step, data in enumerate(iter):
         if step >= max_batches and max_batches > 0: break
+        print(step)
 
         context_idxs = Variable(data['context_idxs'])
         ques_idxs = Variable(data['ques_idxs'])
