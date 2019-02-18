@@ -7,7 +7,6 @@ import numpy as np
 import math
 from torch.nn import init
 from torch.nn.utils import rnn
-from util import BIG_FLOAT
 
 class SPModel(nn.Module):
     def __init__(self, config, word_mat, char_mat):
@@ -105,10 +104,10 @@ class SPModel(nn.Module):
         output_start = torch.cat([output, sp_output], dim=-1)
 
         output_start = self.rnn_start(output_start, context_lens)
-        logit1 = self.linear_start(output_start).squeeze(2) - BIG_FLOAT * (1 - context_mask)
+        logit1 = self.linear_start(output_start).squeeze(2) - 1e30 * (1 - context_mask)
         output_end = torch.cat([output, output_start], dim=2)
         output_end = self.rnn_end(output_end, context_lens)
-        logit2 = self.linear_end(output_end).squeeze(2) - BIG_FLOAT * (1 - context_mask)
+        logit2 = self.linear_end(output_end).squeeze(2) - 1e30 * (1 - context_mask)
 
         output_type = torch.cat([output, output_end], dim=2)
         output_type = torch.max(self.rnn_type(output_type, context_lens), 1)[0]
@@ -118,7 +117,7 @@ class SPModel(nn.Module):
 
         outer = logit1[:,:,None] + logit2[:,None]
         outer_mask = self.get_output_mask(outer)
-        outer = outer - BIG_FLOAT * (1 - outer_mask[None].expand_as(outer))
+        outer = outer - 1e30 * (1 - outer_mask[None].expand_as(outer))
         yp1 = outer.max(dim=2)[0].max(dim=1)[1]
         yp2 = outer.max(dim=1)[0].max(dim=1)[1]
         return logit1, logit2, predict_type, predict_support, yp1, yp2
@@ -213,7 +212,7 @@ class BiAttention(nn.Module):
         memory_dot = self.memory_linear(memory).view(bsz, 1, memory_len)
         cross_dot = torch.bmm(input * self.dot_scale, memory.permute(0, 2, 1).contiguous())
         att = input_dot + memory_dot + cross_dot
-        att = att - BIG_FLOAT * (1 - mask[:,None])
+        att = att - 1e30 * (1 - mask[:,None])
 
         weight_one = F.softmax(att, dim=-1)
         output_one = torch.bmm(weight_one, memory)

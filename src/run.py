@@ -70,10 +70,10 @@ def train(config):
     dev_buckets = get_buckets(config.dev_record_file)
 
     def build_train_iterator():
-        return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit, debug=config.debug)
+        return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug)
 
     def build_dev_iterator():
-        return DataIterator(dev_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit, debug=config.debug)
+        return DataIterator(dev_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug)
 
     if config.sp_lambda > 0:
         model = SPModel(config, word_mat, char_mat)
@@ -167,28 +167,11 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
     iter = data_source
     for step, data in enumerate(iter):
         if step >= max_batches and max_batches > 0: break
-        print(step)
 
         context_idxs = Variable(data['context_idxs'])
-        try:
-            assert (context_idxs.cpu().data.numpy() >= 0).all() and (context_idxs.cpu().data.numpy() < 395261).all()
-        except:
-            print(np.max(context_idxs.cpu().data.numpy()), np.min(context_idxs.cpu().data.numpy()))
         ques_idxs = Variable(data['ques_idxs'])
-        try:
-            assert (ques_idxs.cpu().data.numpy() >= 0).all() and (ques_idxs.cpu().data.numpy() < 395261).all()
-        except:
-            print(np.max(ques_idxs.cpu().data.numpy()), np.min(ques_idxs.cpu().data.numpy()))
         context_char_idxs = Variable(data['context_char_idxs'])
-        try:
-            assert (context_char_idxs.cpu().data.numpy() >= 0).all() and (context_char_idxs.cpu().data.numpy() < 6964).all()
-        except:
-            print(np.max(context_char_idxs.cpu().data.numpy()), np.min(context_char_idxs.cpu().data.numpy()))
         ques_char_idxs = Variable(data['ques_char_idxs'])
-        try:
-            assert (ques_char_idxs.cpu().data.numpy() >= 0).all() and (ques_char_idxs.cpu().data.numpy() < 6964).all()
-        except:
-            print(np.max(ques_char_idxs.cpu().data.numpy()), np.min(ques_char_idxs.cpu().data.numpy()))
         context_lens = Variable(data['context_lens'])
         y1 = Variable(data['y1'])
         y2 = Variable(data['y2'])
@@ -281,7 +264,7 @@ def test(config):
 
     def build_dev_iterator():
         return DataIterator(dev_buckets, config.batch_size, para_limit,
-            ques_limit, config.char_limit, False, config.sent_limit, debug=config.debug)
+            ques_limit, config.char_limit, False, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug)
 
     if config.sp_lambda > 0:
         model = SPModel(config, word_mat, char_mat)

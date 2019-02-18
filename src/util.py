@@ -11,7 +11,6 @@ import ujson as json
 import traceback
 
 IGNORE_INDEX = -100
-BIG_FLOAT = 1e4
 
 RE_D = re.compile('\d')
 def has_digit(string):
@@ -21,7 +20,7 @@ def prepro(token):
     return token if not has_digit(token) else 'N'
 
 class DataIterator(object):
-    def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, sent_limit, debug=False):
+    def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, sent_limit, num_word, num_char, debug=False):
         self.buckets = buckets
         self.bsz = bsz
         if para_limit is not None and ques_limit is not None:
@@ -36,6 +35,8 @@ class DataIterator(object):
             self.para_limit, self.ques_limit = para_limit, ques_limit
         self.char_limit = char_limit
         self.sent_limit = sent_limit
+        self.num_word = num_word
+        self.num_char = num_char
 
         self.num_buckets = len(self.buckets)
         self.bkt_pool = [i for i in range(self.num_buckets) if len(self.buckets[i]) > 0]
@@ -135,10 +136,10 @@ class DataIterator(object):
             if self.bkt_ptrs[bkt_id] >= len(cur_bucket):
                 self.bkt_pool.remove(bkt_id)
 
-            yield {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous(),
-                'ques_idxs': ques_idxs[:cur_bsz, :max_q_len].contiguous(),
-                'context_char_idxs': context_char_idxs[:cur_bsz, :max_c_len].contiguous(),
-                'ques_char_idxs': ques_char_idxs[:cur_bsz, :max_q_len].contiguous(),
+            yield {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous().clamp(0, self.num_word - 1),
+                'ques_idxs': ques_idxs[:cur_bsz, :max_q_len].contiguous().clamp(0, self.num_word - 1),
+                'context_char_idxs': context_char_idxs[:cur_bsz, :max_c_len].contiguous().clamp(0, self.num_char - 1),
+                'ques_char_idxs': ques_char_idxs[:cur_bsz, :max_q_len].contiguous().clamp(0, self.num_char - 1),
                 'context_lens': input_lengths,
                 'y1': y1[:cur_bsz],
                 'y2': y2[:cur_bsz],
