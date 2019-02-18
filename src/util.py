@@ -72,6 +72,7 @@ class DataIterator(object):
 
         while True:
             if len(self.bkt_pool) == 0: break
+            if self.bsz + start_id >= len(cur_bucket): break
             bkt_id = random.choice(self.bkt_pool) if self.shuffle else self.bkt_pool[0]
             start_id = self.bkt_ptrs[bkt_id]
             cur_bucket = self.buckets[bkt_id]
