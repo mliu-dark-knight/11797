@@ -170,9 +170,13 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
         print(step)
 
         context_idxs = Variable(data['context_idxs'])
+        assert (context_idxs.data.numpy() >= 0).all() and (context_idxs.data.numpy() < 395261).all()
         ques_idxs = Variable(data['ques_idxs'])
+        assert (ques_idxs.data.numpy() >= 0).all() and (ques_idxs.data.numpy() < 395261).all()
         context_char_idxs = Variable(data['context_char_idxs'])
+        assert (context_char_idxs.data.numpy() >= 0).all() and (context_char_idxs.data.numpy() < 6964).all()
         ques_char_idxs = Variable(data['ques_char_idxs'])
+        assert (ques_char_idxs.data.numpy() >= 0).all() and (ques_char_idxs.data.numpy() < 6964).all()
         context_lens = Variable(data['context_lens'])
         y1 = Variable(data['y1'])
         y2 = Variable(data['y2'])
