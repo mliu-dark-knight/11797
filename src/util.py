@@ -11,6 +11,7 @@ import ujson as json
 import traceback
 
 IGNORE_INDEX = -100
+BIG_FLOAT = 1e4
 
 RE_D = re.compile('\d')
 def has_digit(string):
@@ -75,7 +76,6 @@ class DataIterator(object):
             bkt_id = random.choice(self.bkt_pool) if self.shuffle else self.bkt_pool[0]
             start_id = self.bkt_ptrs[bkt_id]
             cur_bucket = self.buckets[bkt_id]
-            if self.bsz + start_id >= len(cur_bucket): break
             cur_bsz = min(self.bsz, len(cur_bucket) - start_id)
 
             ids = []
