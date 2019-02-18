@@ -41,7 +41,7 @@ class DataIterator(object):
         if shuffle:
             for i in range(self.num_buckets):
                 random.shuffle(self.buckets[i])
-        self.bkt_ptrs = [7296 for i in range(self.num_buckets)]
+        self.bkt_ptrs = [0 for i in range(self.num_buckets)]
         self.shuffle = shuffle
         self.debug = debug
 
