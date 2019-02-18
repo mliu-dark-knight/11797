@@ -70,7 +70,7 @@ def train(config):
     dev_buckets = get_buckets(config.dev_record_file)
 
     def build_train_iterator():
-        return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, True, config.sent_limit, debug=config.debug)
+        return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit, debug=config.debug)
 
     def build_dev_iterator():
         return DataIterator(dev_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit, debug=config.debug)
