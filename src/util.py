@@ -154,8 +154,10 @@ class DataIterator(object):
 
     def sample_sent(self, batch):
 
-        def contains_span(start_, end_, y1_, y2_):
-            return y1_ >= start_ and y2_ < end_
+        def overlap_span(start_, end_, y1_, y2_):
+            if start_ <= y1_ < end_ or start_ <= y2_ < end_:
+                return True
+            return y1_ <= start_ and y2_ >= end_
 
         assert self.para_limit > 0 and self.char_limit > 0
         new_batch = []
@@ -175,11 +177,11 @@ class DataIterator(object):
                 else:
                     start, end, is_sp_flag, is_gold = tuple(cur_sp_dp)
                 if start < end:
-                    if contains_span(start, end, y1, y2):
+                    if overlap_span(start, end, y1, y2):
                         y_offset = num_word_drop
                         y1 = data['y1'] - num_word_drop
                         y2 = data['y2'] - num_word_drop
-                    if is_sp_flag or is_gold or contains_span(start, end, data['y1'], data['y2']) or not drop[j]:
+                    if is_sp_flag or is_gold or overlap_span(start, end, data['y1'], data['y2']) or not drop[j]:
                         context_idxs[start - num_word_drop:end - num_word_drop] = data['context_idxs'][start:end]
                         context_char_idxs[start - num_word_drop:end - num_word_drop,:] = data['context_char_idxs'][start:end]
                         if is_gold is not None:
