@@ -3,6 +3,7 @@ import re
 import string
 from collections import Counter
 
+import numpy as np
 import torch
 
 IGNORE_INDEX = -100
@@ -15,7 +16,7 @@ def prepro(token):
     return token if not has_digit(token) else 'N'
 
 class DataIterator(object):
-    def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, sent_limit, num_word, num_char, debug=False):
+    def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, sent_limit, num_word, num_char, debug=False, p=0.0):
         self.buckets = buckets
         self.bsz = bsz
         if para_limit is not None and ques_limit is not None:
@@ -41,6 +42,7 @@ class DataIterator(object):
         self.bkt_ptrs = [0 for i in range(self.num_buckets)]
         self.shuffle = shuffle
         self.debug = debug
+        self.p = p
 
     def __iter__(self):
         context_idxs = torch.LongTensor(self.bsz, self.para_limit)
@@ -75,8 +77,11 @@ class DataIterator(object):
             cur_bsz = min(self.bsz, len(cur_bucket) - start_id)
 
             ids = []
+            y_offsets = []
 
             cur_batch = cur_bucket[start_id: start_id + cur_bsz]
+            if self.p > 0.0:
+                cur_batch = self.sample_sent(cur_batch)
             cur_batch.sort(key=lambda x: (x['context_idxs'] > 0).long().sum(), reverse=True)
 
             max_sent_cnt = 0
@@ -108,6 +113,7 @@ class DataIterator(object):
                 else:
                     assert False
                 ids.append(cur_batch[i]['id'])
+                y_offsets.append(cur_batch[i]['y_offset'] if 'y_offset' in cur_batch[i] else 0)
 
                 for j, cur_sp_dp in enumerate(cur_batch[i]['start_end_facts']):
                     if j >= self.sent_limit: break
@@ -131,19 +137,69 @@ class DataIterator(object):
             if self.bkt_ptrs[bkt_id] >= len(cur_bucket):
                 self.bkt_pool.remove(bkt_id)
 
-            yield {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous().clamp(0, self.num_word - 1),
-                'ques_idxs': ques_idxs[:cur_bsz, :max_q_len].contiguous().clamp(0, self.num_word - 1),
-                'context_char_idxs': context_char_idxs[:cur_bsz, :max_c_len].contiguous().clamp(0, self.num_char - 1),
-                'ques_char_idxs': ques_char_idxs[:cur_bsz, :max_q_len].contiguous().clamp(0, self.num_char - 1),
+            yield {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous(),
+                'ques_idxs': ques_idxs[:cur_bsz, :max_q_len].contiguous(),
+                'context_char_idxs': context_char_idxs[:cur_bsz, :max_c_len].contiguous(),
+                'ques_char_idxs': ques_char_idxs[:cur_bsz, :max_q_len].contiguous(),
                 'context_lens': input_lengths,
                 'y1': y1[:cur_bsz],
                 'y2': y2[:cur_bsz],
+                'y_offsets': y_offsets,
                 'ids': ids,
                 'q_type': q_type[:cur_bsz],
                 'is_support': is_support[:cur_bsz, :max_sent_cnt].contiguous(),
                 'start_mapping': start_mapping[:cur_bsz, :max_c_len, :max_sent_cnt],
                 'end_mapping': end_mapping[:cur_bsz, :max_c_len, :max_sent_cnt],
                 'all_mapping': all_mapping[:cur_bsz, :max_c_len, :max_sent_cnt]}
+
+    def sample_sent(self, batch):
+
+        def contains_span(start_, end_, y1_, y2_):
+            return y1_ >= start_ and y2_ < end_
+
+        assert self.para_limit > 0 and self.char_limit > 0
+        new_batch = []
+        for data in batch:
+            drop = np.random.rand(len(data['start_end_facts'])) < self.p
+            num_word_drop = 0
+            context_idxs = data['context_idxs'].data.new(self.para_limit).fill_(0)
+            context_char_idxs = data['context_char_idxs'].data.new(self.para_limit, self.char_limit).fill_(0)
+            y1 = data['y1']
+            y2 = data['y2']
+            y_offset = 0
+            start_end_facts = []
+            for j, cur_sp_dp in enumerate(data['start_end_facts']):
+                if len(cur_sp_dp) == 3:
+                    start, end, is_sp_flag = tuple(cur_sp_dp)
+                    is_gold = None
+                else:
+                    start, end, is_sp_flag, is_gold = tuple(cur_sp_dp)
+                if start < end:
+                    if contains_span(start, end, y1, y2):
+                        y_offset = num_word_drop
+                        y1 = data['y1'] - num_word_drop
+                        y2 = data['y2'] - num_word_drop
+                    if is_sp_flag or is_gold or contains_span(start, end, data['y1'], data['y2']) or not drop[j]:
+                        context_idxs[start - num_word_drop:end - num_word_drop] = data['context_idxs'][start:end]
+                        context_char_idxs[start - num_word_drop:end - num_word_drop,:] = data['context_char_idxs'][start:end]
+                        if is_gold is not None:
+                            start_end_facts.append((start - num_word_drop, end - num_word_drop, is_sp_flag, is_gold))
+                        else:
+                            start_end_facts.append((start - num_word_drop, end - num_word_drop, is_sp_flag))
+                    else:
+                        num_word_drop += (end - start)
+            new_batch.append({
+                'context_idxs': context_idxs,
+                'context_char_idxs': context_char_idxs,
+                'ques_idxs': data['ques_idxs'],
+                'ques_char_idxs': data['ques_char_idxs'],
+                'y1': y1,
+                'y2': y2,
+                'y_offset': y_offset,
+                'id': data['id'],
+                'start_end_facts': start_end_facts,
+            })
+        return new_batch
 
 def get_buckets(record_file):
     # datapoints = pickle.load(open(record_file, 'rb'))

@@ -68,10 +68,10 @@ def train(config):
     dev_buckets = get_buckets(config.dev_record_file)
 
     def build_train_iterator():
-        return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, True, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug)
+        return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, True, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug, p=config.p)
 
     def build_dev_iterator():
-        return DataIterator(dev_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug)
+        return DataIterator(dev_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug, p=config.p)
 
     if config.sp_lambda > 0:
         model = SPModel(config, word_mat, char_mat)
@@ -181,7 +181,10 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 
         logit1, logit2, predict_type, predict_support, yp1, yp2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
         loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) + config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
-        answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
+        answer_dict_ = convert_tokens(eval_file, data['ids'],
+                                      list(map(lambda x: sum(x), zip(yp1.data.cpu().numpy().tolist(), data['y_offsets']))),
+                                      list(map(lambda x: sum(x), zip(yp2.data.cpu().numpy().tolist(), data['y_offsets']))),
+                                      np.argmax(predict_type.data.cpu().numpy(), 1))
         answer_dict.update(answer_dict_)
 
         total_loss += loss.item()
@@ -262,7 +265,7 @@ def test(config):
 
     def build_dev_iterator():
         return DataIterator(dev_buckets, config.batch_size, para_limit,
-            ques_limit, config.char_limit, False, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug)
+            ques_limit, config.char_limit, False, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug, p=0.0)
 
     if config.sp_lambda > 0:
         model = SPModel(config, word_mat, char_mat)
