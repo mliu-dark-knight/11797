@@ -190,12 +190,7 @@ class DataIterator(object):
                             start_end_facts.append((start - num_word_drop, end - num_word_drop, is_sp_flag))
                     else:
                         num_word_drop += (end - start)
-            try:
-                assert y1 < (context_idxs > 0).long().sum().item() and y2 < (context_idxs > 0).long().sum().item()
-            except:
-                print(data['y1'], data['y2'])
-                for cur_sp_dp in data['start_end_facts']:
-                    print(cur_sp_dp)
+            assert y1 < (context_idxs > 0).long().sum().item() and y2 < (context_idxs > 0).long().sum().item()
             new_batch.append({
                 'context_idxs': context_idxs,
                 'context_char_idxs': context_char_idxs,
