@@ -137,10 +137,10 @@ class DataIterator(object):
             if self.bkt_ptrs[bkt_id] >= len(cur_bucket):
                 self.bkt_pool.remove(bkt_id)
 
-            yield {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous(),
-                'ques_idxs': ques_idxs[:cur_bsz, :max_q_len].contiguous(),
-                'context_char_idxs': context_char_idxs[:cur_bsz, :max_c_len].contiguous(),
-                'ques_char_idxs': ques_char_idxs[:cur_bsz, :max_q_len].contiguous(),
+            yield {'context_idxs': context_idxs[:cur_bsz, :max_c_len].contiguous().clamp(0, self.num_word - 1),
+                'ques_idxs': ques_idxs[:cur_bsz, :max_q_len].contiguous().clamp(0, self.num_word - 1),
+                'context_char_idxs': context_char_idxs[:cur_bsz, :max_c_len].contiguous().clamp(0, self.num_char - 1),
+                'ques_char_idxs': ques_char_idxs[:cur_bsz, :max_q_len].contiguous().clamp(0, self.num_char - 1),
                 'context_lens': input_lengths,
                 'y1': y1[:cur_bsz],
                 'y2': y2[:cur_bsz],
