@@ -10,10 +10,11 @@ from torch import optim, nn
 from torch.autograd import Variable
 from tqdm import tqdm
 
-from model import Model
+from hop_model import HOPModel
+from iterator import DataIterator
 from sp_model import SPModel
 from util import convert_tokens, evaluate
-from util import get_buckets, DataIterator, IGNORE_INDEX
+from util import get_buckets, IGNORE_INDEX
 
 
 def create_exp_dir(path, scripts_to_save=None):
@@ -73,10 +74,10 @@ def train(config):
     def build_dev_iterator():
         return DataIterator(dev_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug, p=config.p)
 
-    if config.sp_lambda > 0:
+    if config.baseline:
         model = SPModel(config, word_mat, char_mat)
     else:
-        model = Model(config, word_mat, char_mat)
+        model = HOPModel(config, word_mat, char_mat)
 
     logging('nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
     ori_model = model if config.debug else model.cuda()
@@ -95,26 +96,44 @@ def train(config):
 
     for epoch in range(10000):
         for data in build_train_iterator():
-            context_idxs = Variable(data['context_idxs'])
-            ques_idxs = Variable(data['ques_idxs'])
-            context_char_idxs = Variable(data['context_char_idxs'])
-            ques_char_idxs = Variable(data['ques_char_idxs'])
-            context_lens = Variable(data['context_lens'])
+            context_idxs_l = data['context_idxs_l']
+            context_idxs_r = data['context_idxs_r']
+            ques_idxs_l = data['ques_idxs_l']
+            ques_idxs_r = data['ques_idxs_r']
+            context_char_idxs_l = data['context_char_idxs_l']
+            context_char_idxs_r = data['context_char_idxs_r']
+            ques_char_idxs_l = data['ques_char_idxs_l']
+            ques_char_idxs_r = data['ques_char_idxs_r']
+            context_lens_l = data['context_lens_l']
+            context_lens_r = data['context_lens_r']
             y1 = Variable(data['y1'])
             y2 = Variable(data['y2'])
             q_type = Variable(data['q_type'])
             is_support = Variable(data['is_support'])
-            start_mapping = Variable(data['start_mapping'])
-            end_mapping = Variable(data['end_mapping'])
-            all_mapping = Variable(data['all_mapping'])
+            start_mapping_l = data['start_mapping_l']
+            start_mapping_r = data['start_mapping_r']
+            end_mapping_l = data['end_mapping_l']
+            end_mapping_r = data['end_mapping_r']
+            all_mapping = data['all_mapping']
 
-            logit1, logit2, predict_type, predict_support = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=False)
-            nll_sum(predict_type, q_type)
-            nll_sum(logit1, y1)
-            nll_sum(logit2, y2)
-            loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0)
-            loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
-            loss = loss_1 + config.sp_lambda * loss_2
+            if config.baseline:
+                logit1, logit2, predict_type, predict_support = model(context_idxs_l, ques_idxs_l,
+                                                                      context_char_idxs_l, ques_char_idxs_l,
+                                                                      context_lens_l,
+                                                                      start_mapping_l, end_mapping_l, all_mapping,
+                                                                      return_yp=False)
+                loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs_l.size(0)
+                loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
+                loss = loss_1 + config.sp_lambda * loss_2
+            else:
+                predict_support = model(context_idxs_l, ques_idxs_l, context_char_idxs_l, ques_char_idxs_l,
+                                        context_lens_l, start_mapping_l, end_mapping_l, state='locate', return_yp=False)
+                logit1, logit2, predict_type = model(context_idxs_r, ques_idxs_r, context_char_idxs_r, ques_char_idxs_r,
+                                                     context_lens_r, start_mapping_r, end_mapping_r, state='reason', return_yp=False)
+                loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs_l.size(0)
+                loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
+                loss = loss_1 + config.sp_lambda * loss_2
+
 
             optimizer.zero_grad()
             loss.backward()
@@ -270,10 +289,10 @@ def test(config):
         return DataIterator(dev_buckets, config.batch_size, para_limit,
             ques_limit, config.char_limit, False, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug, p=0.0)
 
-    if config.sp_lambda > 0:
+    if config.baseline:
         model = SPModel(config, word_mat, char_mat)
     else:
-        model = Model(config, word_mat, char_mat)
+        model = HOPModel(config, word_mat, char_mat)
     ori_model = model if config.debug else model.cuda()
     ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
     model = nn.DataParallel(ori_model)
