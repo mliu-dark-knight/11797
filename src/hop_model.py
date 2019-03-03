@@ -51,7 +51,7 @@ class HOPModel(nn.Module):
 		self.rnn_sp = EncoderRNN(config.hidden, config.hidden, 1, False, True, 1 - config.keep_prob, False)
 		self.linear_sp = nn.Linear(config.hidden * 2, 1)
 
-		self.rnn_start = EncoderRNN(config.hidden * 3, config.hidden, 1, False, True, 1 - config.keep_prob, False)
+		self.rnn_start = EncoderRNN(config.hidden * 2, config.hidden, 1, False, True, 1 - config.keep_prob, False)
 		self.linear_start = nn.Linear(config.hidden * 2, 1)
 
 		self.rnn_end = EncoderRNN(config.hidden * 3, config.hidden, 1, False, True, 1 - config.keep_prob, False)

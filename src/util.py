@@ -3,6 +3,7 @@ import string
 from collections import Counter
 
 import torch
+from sklearn import metrics
 
 IGNORE_INDEX = -100
 
@@ -107,4 +108,8 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
         score = metric_fn(prediction, ground_truth)
         scores_for_ground_truths.append(score)
     return max(scores_for_ground_truths)
+
+
+def evaluate_sp(sp_true, sp_pred):
+    return 100. * metrics.f1_score(sp_true, sp_pred)
 

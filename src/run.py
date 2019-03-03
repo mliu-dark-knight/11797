@@ -13,8 +13,7 @@ from tqdm import tqdm
 from hop_model import HOPModel
 from iterator import DataIterator
 from sp_model import SPModel
-from util import convert_tokens, evaluate
-from util import get_buckets, IGNORE_INDEX
+from util import convert_tokens, evaluate, evaluate_sp, get_buckets, IGNORE_INDEX
 
 
 def create_exp_dir(path, scripts_to_save=None):
@@ -194,9 +193,9 @@ def train(config):
 
 				logging('-' * 89)
 				logging(
-					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(
-						global_step // config.checkpoint,
-						epoch, time.time() - eval_start_time, metrics['loss'], metrics['exact_match'], metrics['f1']))
+					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | SP_F1 {:.4f}'.format(
+						global_step // config.checkpoint, epoch, time.time() - eval_start_time,
+						metrics['loss'], metrics['exact_match'], metrics['f1'], metrics['sp_f1']))
 				logging('-' * 89)
 
 				eval_start_time = time.time()
@@ -223,6 +222,7 @@ def train(config):
 @torch.no_grad()
 def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	answer_dict = {}
+	sp_pred, sp_true = [], []
 	total_loss, step_cnt = 0, 0
 	iter = data_source
 	for step, data in enumerate(iter):
@@ -249,12 +249,20 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		                              np.argmax(predict_type.data.cpu().numpy(), 1))
 		answer_dict.update(answer_dict_)
 
+		is_support_np = is_support.data.cpu().numpy().flatten()
+		predict_support_np = np.round(torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy().flatten())
+		for sp_t, sp_p in zip(is_support_np, predict_support_np):
+			if sp_t == IGNORE_INDEX:
+				continue
+			sp_true.append(sp_t)
+			sp_pred.append(sp_p)
+
 		total_loss += loss.item()
 		step_cnt += 1
 	loss = total_loss / step_cnt
 	metrics = evaluate(eval_file, answer_dict)
 	metrics['loss'] = loss
-
+	metrics['sp_f1'] = evaluate_sp(sp_true, sp_pred)
 	return metrics
 
 
