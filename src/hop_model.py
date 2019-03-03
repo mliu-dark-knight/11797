@@ -17,7 +17,7 @@ class Memory(nn.Module):
 	def forward(self, input, context_lens, context_mask):
 		output_t = self.rnn(input, context_lens)
 		output_t = self.self_att(output_t, output_t, context_mask)
-		output_t = self.linear_2(output_t)
+		output_t = self.linear(output_t)
 		return input + output_t
 
 

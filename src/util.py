@@ -1,9 +1,7 @@
-import random
 import re
 import string
 from collections import Counter
 
-import numpy as np
 import torch
 
 IGNORE_INDEX = -100
@@ -57,61 +55,6 @@ def evaluate(eval_file, answer_dict):
 
     return {'exact_match': exact_match, 'f1': f1}
 
-# def evaluate(eval_file, answer_dict, full_stats=False):
-#     if full_stats:
-#         with open('qaid2type.json', 'r') as f:
-#             qaid2type = json.load(f)
-#         f1_b = exact_match_b = total_b = 0
-#         f1_4 = exact_match_4 = total_4 = 0
-
-#         qaid2perf = {}
-
-#     f1 = exact_match = total = 0
-#     for key, value in answer_dict.items():
-#         total += 1
-#         ground_truths = eval_file[key]["answer"]
-#         prediction = value
-#         cur_EM = metric_max_over_ground_truths(
-#             exact_match_score, prediction, ground_truths)
-#         # cur_f1 = metric_max_over_ground_truths(f1_score,
-#                                             # prediction, ground_truths)
-#         assert len(ground_truths) == 1
-#         cur_f1, cur_prec, cur_recall = f1_score(prediction, ground_truths[0])
-#         exact_match += cur_EM
-#         f1 += cur_f1
-#         if full_stats and key in qaid2type:
-#             if qaid2type[key] == '4':
-#                 f1_4 += cur_f1
-#                 exact_match_4 += cur_EM
-#                 total_4 += 1
-#             elif qaid2type[key] == 'b':
-#                 f1_b += cur_f1
-#                 exact_match_b += cur_EM
-#                 total_b += 1
-#             else:
-#                 assert False
-
-#         if full_stats:
-#             qaid2perf[key] = {'em': cur_EM, 'f1': cur_f1, 'pred': prediction,
-#                     'prec': cur_prec, 'recall': cur_recall}
-
-#     exact_match = 100.0 * exact_match / total
-#     f1 = 100.0 * f1 / total
-
-#     ret = {'exact_match': exact_match, 'f1': f1}
-#     if full_stats:
-#         if total_b > 0:
-#             exact_match_b = 100.0 * exact_match_b / total_b
-#             exact_match_4 = 100.0 * exact_match_4 / total_4
-#             f1_b = 100.0 * f1_b / total_b
-#             f1_4 = 100.0 * f1_4 / total_4
-#             ret.update({'exact_match_b': exact_match_b, 'f1_b': f1_b,
-#                 'exact_match_4': exact_match_4, 'f1_4': f1_4,
-#                 'total_b': total_b, 'total_4': total_4, 'total': total})
-
-#         ret['qaid2perf'] = qaid2perf
-
-#     return ret
 
 def normalize_answer(s):
 

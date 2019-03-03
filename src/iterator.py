@@ -1,3 +1,7 @@
+import random
+
+import numpy as np
+
 from util import *
 
 
@@ -111,8 +115,8 @@ class DataIterator(object):
 		return new_batch
 
 	def __iter__(self):
-		all_mapping, context_char_idxs_l, context_idxs_l, end_mapping_l, is_support, _, ques_char_idxs_l, ques_idxs_l, start_mapping_l, _, _ = self.init_batch()
-		_, context_char_idxs_r, context_idxs_r, end_mapping_r, _, q_type, ques_char_idxs_r, ques_idxs_r, start_mapping_r, y1, y2 = self.init_batch()
+		all_mapping, context_char_idxs_l, context_idxs_l, end_mapping_l, is_support, _, ques_char_idxs, ques_idxs, start_mapping_l, _, _ = self.init_batch()
+		_, context_char_idxs_r, context_idxs_r, end_mapping_r, _, q_type, _, _, start_mapping_r, y1, y2 = self.init_batch()
 
 		while True:
 			if len(self.bkt_pool) == 0: break
@@ -121,22 +125,24 @@ class DataIterator(object):
 			cur_bucket = self.buckets[bkt_id]
 			cur_bsz = min(self.bsz, len(cur_bucket) - start_id)
 
-			ids_l, ids_r = [], []
-			y_offsets = []
+			ids = []
+			y_offsets_l, y_offsets_r = [], []
 			max_sent_cnt_l, max_sent_cnt_r = 0, 0
 			for mapping in [start_mapping_l, end_mapping_l, start_mapping_r, end_mapping_r, all_mapping]:
 				mapping.zero_()
 			is_support.fill_(IGNORE_INDEX)
 
 			cur_batch = cur_bucket[start_id: start_id + cur_bsz]
+			cur_batch = self.sample_sent(cur_batch, p=self.p)
 			cur_batch.sort(key=lambda x: (x['context_idxs'] > 0).long().sum(), reverse=True)
 
 			for i in range(len(cur_batch)):
 				context_idxs_l[i].copy_(cur_batch[i]['context_idxs'])
-				ques_idxs_l[i].copy_(cur_batch[i]['ques_idxs'])
+				ques_idxs[i].copy_(cur_batch[i]['ques_idxs'])
 				context_char_idxs_l[i].copy_(cur_batch[i]['context_char_idxs'])
-				ques_char_idxs_l[i].copy_(cur_batch[i]['ques_char_idxs'])
-				ids_l.append(cur_batch[i]['id'])
+				ques_char_idxs[i].copy_(cur_batch[i]['ques_char_idxs'])
+				ids.append(cur_batch[i]['id'])
+				y_offsets_l.append(cur_batch[i]['y_offset'])
 
 				for j, cur_sp_dp in enumerate(cur_batch[i]['start_end_facts']):
 					if j >= self.sent_limit: break
@@ -148,22 +154,20 @@ class DataIterator(object):
 						start_mapping_l[i, start, j] = 1
 						end_mapping_l[i, end - 1, j] = 1
 						all_mapping[i, start:end, j] = 1
-						is_support[i, j] = int(is_sp_flag or overlap_span(start, end, cur_batch[i]['y1'], cur_batch[i]['y2']))
+						is_support[i, j] = int(
+							is_sp_flag or overlap_span(start, end, cur_batch[i]['y1'], cur_batch[i]['y2']))
 
 				max_sent_cnt_l = max(max_sent_cnt_l, len(cur_batch[i]['start_end_facts']))
 
 			input_lengths_l = (context_idxs_l[:cur_bsz] > 0).long().sum(dim=1)
 			max_c_len_l = int(input_lengths_l.max())
-			max_q_len_l = int((ques_idxs_l[:cur_bsz] > 0).long().sum(dim=1).max())
+			max_q_len = int((ques_idxs[:cur_bsz] > 0).long().sum(dim=1).max())
 
 			cur_batch = self.sample_sent(cur_batch, p=self.p)
-			cur_batch.sort(key=lambda x: (x['context_idxs'] > 0).long().sum(), reverse=True)
 
 			for i in range(len(cur_batch)):
 				context_idxs_r[i].copy_(cur_batch[i]['context_idxs'])
-				ques_idxs_r[i].copy_(cur_batch[i]['ques_idxs'])
 				context_char_idxs_r[i].copy_(cur_batch[i]['context_char_idxs'])
-				ques_char_idxs_r[i].copy_(cur_batch[i]['ques_char_idxs'])
 				if cur_batch[i]['y1'] >= 0:
 					y1[i] = cur_batch[i]['y1']
 					y2[i] = cur_batch[i]['y2']
@@ -182,8 +186,7 @@ class DataIterator(object):
 					q_type[i] = 3
 				else:
 					assert False
-				ids_r.append(cur_batch[i]['id'])
-				y_offsets.append(cur_batch[i]['y_offset'])
+				y_offsets_r.append(cur_batch[i]['y_offset'])
 
 				for j, cur_sp_dp in enumerate(cur_batch[i]['start_end_facts']):
 					if j >= self.sent_limit: break
@@ -197,9 +200,7 @@ class DataIterator(object):
 
 				max_sent_cnt_r = max(max_sent_cnt_r, len(cur_batch[i]['start_end_facts']))
 
-			input_lengths_r = (context_idxs_r[:cur_bsz] > 0).long().sum(dim=1)
-			max_c_len_r = int(input_lengths_r.max())
-			max_q_len_r = int((ques_idxs_r[:cur_bsz] > 0).long().sum(dim=1).max())
+			max_c_len_r = int((context_idxs_r[:cur_bsz] > 0).long().sum(dim=1).max())
 
 			self.bkt_ptrs[bkt_id] += cur_bsz
 			if self.bkt_ptrs[bkt_id] >= len(cur_bucket):
@@ -208,18 +209,14 @@ class DataIterator(object):
 			yield {
 				'context_idxs_l': context_idxs_l[:cur_bsz, :max_c_len_l].contiguous().clamp(0, self.num_word - 1),
 				'context_idxs_r': context_idxs_r[:cur_bsz, :max_c_len_r].contiguous().clamp(0, self.num_word - 1),
-				'ques_idxs_l': ques_idxs_l[:cur_bsz, :max_q_len_l].contiguous().clamp(0, self.num_word - 1),
-				'ques_idxs_r': ques_idxs_r[:cur_bsz, :max_q_len_r].contiguous().clamp(0, self.num_word - 1),
+				'ques_idxs': ques_idxs[:cur_bsz, :max_q_len].contiguous().clamp(0, self.num_word - 1),
 				'context_char_idxs_l': context_char_idxs_l[:cur_bsz, :max_c_len_l].contiguous().clamp(0,
 				                                                                                      self.num_char - 1),
 				'context_char_idxs_r': context_char_idxs_r[:cur_bsz, :max_c_len_r].contiguous().clamp(0,
 				                                                                                      self.num_char - 1),
-				'ques_char_idxs_l': ques_char_idxs_l[:cur_bsz, :max_q_len_l].contiguous().clamp(0, self.num_char - 1),
-				'ques_char_idxs_r': ques_char_idxs_r[:cur_bsz, :max_q_len_r].contiguous().clamp(0, self.num_char - 1),
+				'ques_char_idxs': ques_char_idxs[:cur_bsz, :max_q_len].contiguous().clamp(0, self.num_char - 1),
 				'context_lens_l': input_lengths_l,
-				'context_lens_r': input_lengths_r,
-				'ids_l': ids_l,
-				'ids_r': ids_r,
+				'ids': ids,
 				'is_support': is_support[:cur_bsz, :max_sent_cnt_l].contiguous(),
 				'start_mapping_l': start_mapping_l[:cur_bsz, :max_c_len_l, :max_sent_cnt_l],
 				'start_mapping_r': start_mapping_r[:cur_bsz, :max_c_len_r, :max_sent_cnt_r],
@@ -228,6 +225,7 @@ class DataIterator(object):
 				'all_mapping': all_mapping[:cur_bsz, :max_c_len_l, :max_sent_cnt_l],
 				'y1': y1[:cur_bsz],
 				'y2': y2[:cur_bsz],
-				'y_offsets': y_offsets,
+				'y_offsets_l': np.array(y_offsets_l),
+				'y_offsets_r': np.array(y_offsets_r),
 				'q_type': q_type[:cur_bsz],
 			}
