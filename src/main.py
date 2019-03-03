@@ -25,7 +25,7 @@ test_record_file = os.path.join(data_dir, 'test_record.pkl')
 
 
 parser.add_argument('--debug', default=False, action='store_true')
-parser.add_argument('--p', type=float, default=0.0)
+parser.add_argument('--p', type=float, default=1.0)
 parser.add_argument('--mode', type=str, default='train')
 parser.add_argument('--data_file', type=str)
 parser.add_argument('--glove_word_file', type=str, default=glove_word_file)

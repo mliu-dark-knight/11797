@@ -1,7 +1,7 @@
 
 import numpy as np
 
-from common.model import *
+from model.common import *
 
 
 class SPModel(nn.Module):

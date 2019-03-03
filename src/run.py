@@ -10,10 +10,10 @@ from torch import optim, nn
 from torch.autograd import Variable
 from tqdm import tqdm
 
-from hop_model import HOPModel
-from iterator import DataIterator
-from sp_model import SPModel
-from util import convert_tokens, evaluate, evaluate_sp, get_buckets, IGNORE_INDEX
+from model.hop_model import HOPModel
+from model.sp_model import SPModel
+from utils.eval import convert_tokens, evaluate, evaluate_sp, get_buckets, IGNORE_INDEX
+from utils.iterator import DataIterator
 
 
 def create_exp_dir(path, scripts_to_save=None):
@@ -29,32 +29,30 @@ def create_exp_dir(path, scripts_to_save=None):
 			shutil.copyfile(script, dst_file)
 
 
-def model_output(model, context_idxs_l, context_idxs_r, context_char_idxs_l, context_char_idxs_r, context_lens_l,
-                 ques_idxs, ques_char_idxs, start_mapping_l, start_mapping_r, end_mapping_l, end_mapping_r,
-                 all_mapping, baseline=False, return_yp=False):
+def model_output(model, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs,
+                 context_lens, start_mapping, end_mapping, all_mapping, baseline=False, return_yp=False):
 	if baseline:
 		if return_yp:
-			logit1, logit2, predict_type, predict_support, yp1, yp2 = model(context_idxs_l, ques_idxs,
-			                                                                context_char_idxs_l, ques_char_idxs,
-			                                                                context_lens_l,
-			                                                                start_mapping_l, end_mapping_l, all_mapping,
+			logit1, logit2, predict_type, predict_support, yp1, yp2 = model(context_idxs, ques_idxs,
+			                                                                context_char_idxs, ques_char_idxs,
+			                                                                context_lens,
+			                                                                start_mapping, end_mapping, all_mapping,
 			                                                                return_yp=return_yp)
 		else:
-			logit1, logit2, predict_type, predict_support = model(context_idxs_l, ques_idxs,
-			                                                      context_char_idxs_l, ques_char_idxs, context_lens_l,
-			                                                      start_mapping_l, end_mapping_l, all_mapping,
+			logit1, logit2, predict_type, predict_support = model(context_idxs, ques_idxs,
+			                                                      context_char_idxs, ques_char_idxs, context_lens,
+			                                                      start_mapping, end_mapping, all_mapping,
 			                                                      return_yp=return_yp)
 	else:
-		predict_support = model(context_idxs_l, ques_idxs, context_char_idxs_l, ques_char_idxs,
-		                        context_lens_l, start_mapping_l, end_mapping_l, stage='locate', return_yp=return_yp)
+		predict_support = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs,
+		                        context_lens, start_mapping, end_mapping, stage='locate', return_yp=return_yp)
 		if return_yp:
 			logit1, logit2, predict_type, yp1, yp2 = model(context_idxs_r, ques_idxs, context_char_idxs_r,
-			                                               ques_char_idxs, None, start_mapping_r, end_mapping_r,
+			                                               ques_char_idxs, None, None, None,
 			                                               stage='reason', return_yp=return_yp)
 		else:
 			logit1, logit2, predict_type = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
-			                                     None, start_mapping_r, end_mapping_r,
-			                                     stage='reason', return_yp=return_yp)
+			                                     None, None, None, stage='reason', return_yp=return_yp)
 
 	if return_yp:
 		return logit1, logit2, predict_support, predict_type, yp1, yp2
@@ -62,27 +60,26 @@ def model_output(model, context_idxs_l, context_idxs_r, context_char_idxs_l, con
 
 
 def unpack(data):
-	context_idxs_l = data['context_idxs_l']
+	context_idxs = data['context_idxs']
 	context_idxs_r = data['context_idxs_r']
 	ques_idxs = data['ques_idxs']
-	context_char_idxs_l = data['context_char_idxs_l']
+	context_char_idxs = data['context_char_idxs']
 	context_char_idxs_r = data['context_char_idxs_r']
 	ques_char_idxs = data['ques_char_idxs']
-	context_lens_l = data['context_lens_l']
+	context_lens = data['context_lens']
 	y1 = data['y1']
+	y1_r = data['y1_r']
 	y2 = data['y2']
-	y_offsets_l = data['y_offsets_l']
+	y2_r = data['y2_r']
+	y_offsets = data['y_offsets']
 	y_offsets_r = data['y_offsets_r']
 	q_type = Variable(data['q_type'])
 	is_support = Variable(data['is_support'])
-	start_mapping_l = data['start_mapping_l']
-	start_mapping_r = data['start_mapping_r']
-	end_mapping_l = data['end_mapping_l']
-	end_mapping_r = data['end_mapping_r']
+	start_mapping = data['start_mapping']
+	end_mapping = data['end_mapping']
 	all_mapping = data['all_mapping']
-	return all_mapping, context_char_idxs_l, context_char_idxs_r, context_idxs_l, context_idxs_r, context_lens_l, \
-	       end_mapping_l, end_mapping_r, is_support, q_type, ques_char_idxs, ques_idxs, \
-	       start_mapping_l, start_mapping_r, y1, y2, y_offsets_l, y_offsets_r
+	return context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, context_lens, \
+	       y1, y1_r, y2, y2_r, y_offsets, y_offsets_r, q_type, is_support, start_mapping, end_mapping, all_mapping
 
 
 nll_sum = nn.CrossEntropyLoss(size_average=False, ignore_index=IGNORE_INDEX)
@@ -109,7 +106,7 @@ def train(config):
 	torch.cuda.manual_seed_all(config.seed)
 
 	config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
-	create_exp_dir(config.save, scripts_to_save=['run.py', 'util.py', 'sp_model.py', 'hop_model.py'])
+	create_exp_dir(config.save)
 
 	def logging(s, print_=True, log_=True):
 		if print_:
@@ -156,18 +153,19 @@ def train(config):
 
 	for epoch in range(10000):
 		for data in build_train_iterator():
-			all_mapping, context_char_idxs_l, context_char_idxs_r, context_idxs_l, context_idxs_r, \
-			context_lens_l, end_mapping_l, end_mapping_r, is_support, q_type, \
-			ques_char_idxs, ques_idxs, start_mapping_l, start_mapping_r, y1, y2, _, _ = unpack(data)
+			context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, context_lens, \
+			y1, y1_r, y2, y2_r, y_offsets, y_offsets_r, q_type, is_support, start_mapping, end_mapping, all_mapping = unpack(
+				data)
 
-			logit1, logit2, predict_support, predict_type = model_output(model, context_idxs_l, context_idxs_r,
-			                                                             context_char_idxs_l, context_char_idxs_r,
-			                                                             context_lens_l, ques_idxs, ques_char_idxs,
-			                                                             start_mapping_l, start_mapping_r,
-			                                                             end_mapping_l, end_mapping_r, all_mapping,
-			                                                             baseline=config.baseline, return_yp=False)
+			logit1, logit2, predict_support, predict_type = model_output(
+				model, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs,
+				context_lens, start_mapping, end_mapping, all_mapping, baseline=config.baseline, return_yp=False)
+
+			if not config.baseline:
+				y1 = y1_r
+				y2 = y2_r
 			loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) +
-			          nll_sum(logit2, y2)) / context_idxs_l.size(0)
+			          nll_sum(logit2, y2)) / context_idxs.size(0)
 			loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
 			loss = loss_1 + config.sp_lambda * loss_2
 
@@ -228,21 +226,21 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	for step, data in enumerate(iter):
 		if step >= max_batches and max_batches > 0: break
 
-		all_mapping, context_char_idxs_l, context_char_idxs_r, context_idxs_l, context_idxs_r, \
-		context_lens_l, end_mapping_l, end_mapping_r, is_support, q_type, \
-		ques_char_idxs, ques_idxs, start_mapping_l, start_mapping_r, y1, y2, y_offsets_l, y_offsets_r = unpack(data)
+		context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, context_lens, \
+		y1, y1_r, y2, y2_r, y_offsets, y_offsets_r, q_type, is_support, start_mapping, end_mapping, all_mapping \
+			= unpack(data)
 
-		logit1, logit2, predict_support, predict_type, yp1, yp2 = model_output(model, context_idxs_l, context_idxs_r,
-		                                                                       context_char_idxs_l, context_char_idxs_r,
-		                                                                       context_lens_l, ques_idxs,
-		                                                                       ques_char_idxs,
-		                                                                       start_mapping_l, start_mapping_r,
-		                                                                       end_mapping_l, end_mapping_r,
-		                                                                       all_mapping,
-		                                                                       baseline=config.baseline, return_yp=True)
-		loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs_l.size(0) + \
+		logit1, logit2, predict_support, predict_type, yp1, yp2 = model_output(
+			model, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs,
+			context_lens, start_mapping, end_mapping, all_mapping, baseline=config.baseline, return_yp=True)
+
+		if not config.baseline:
+			y_offsets = y_offsets_r
+			y1 = y1_r
+			y2 = y2_r
+		loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) + \
 		       config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
-		y_offsets = y_offsets_l if config.baseline else y_offsets_l + y_offsets_r
+
 		answer_dict_ = convert_tokens(eval_file, data['ids'],
 		                              yp1.data.cpu().numpy() + y_offsets,
 		                              yp2.data.cpu().numpy() + y_offsets,
@@ -250,7 +248,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		answer_dict.update(answer_dict_)
 
 		is_support_np = is_support.data.cpu().numpy().flatten()
-		predict_support_np = np.round(torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy().flatten())
+		predict_support_np = np.rint(torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy().flatten()).astype(int)
 		for sp_t, sp_p in zip(is_support_np, predict_support_np):
 			if sp_t == IGNORE_INDEX:
 				continue
@@ -272,20 +270,15 @@ def predict(data_source, model, eval_file, config, prediction_file):
 	sp_dict = {}
 	sp_th = config.sp_threshold
 	for step, data in enumerate(tqdm(data_source)):
-		all_mapping, context_char_idxs_l, context_char_idxs_r, context_idxs_l, context_idxs_r, \
-		context_lens_l, end_mapping_l, end_mapping_r, is_support, q_type, \
-		ques_char_idxs, ques_idxs, start_mapping_l, start_mapping_r, y1, y2, y_offsets_l, y_offsets_r = unpack(data)
+		context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, context_lens, \
+		y1, y1_r, y2, y2_r, y_offsets, y_offsets_r, q_type, is_support, start_mapping, end_mapping, all_mapping \
+			= unpack(data)
 
-		logit1, logit2, predict_support, predict_type, yp1, yp2 = model_output(model, context_idxs_l, context_idxs_r,
-		                                                                       context_char_idxs_l, context_char_idxs_r,
-		                                                                       context_lens_l, ques_idxs,
-		                                                                       ques_char_idxs,
-		                                                                       start_mapping_l, start_mapping_r,
-		                                                                       end_mapping_l, end_mapping_r,
-		                                                                       all_mapping,
-		                                                                       baseline=config.baseline, return_yp=True)
+		logit1, logit2, predict_support, predict_type, yp1, yp2 = model_output(
+			model, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs,
+			context_lens, start_mapping, end_mapping, all_mapping, baseline=config.baseline, return_yp=True)
 
-		y_offsets = y_offsets_l if config.baseline else y_offsets_l + y_offsets_r
+		if not config.baseline: y_offsets = y_offsets_r
 		answer_dict_ = convert_tokens(eval_file, data['ids'],
 		                              yp1.data.cpu().numpy() + y_offsets,
 		                              yp2.data.cpu().numpy() + y_offsets,
