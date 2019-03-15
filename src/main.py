@@ -52,7 +52,6 @@ parser.add_argument('--char_dim', type=int, default=8)
 
 parser.add_argument('--para_limit', type=int, default=2250)
 parser.add_argument('--ques_limit', type=int, default=80)
-parser.add_argument('--sent_limit', type=int, default=100)
 parser.add_argument('--char_limit', type=int, default=16)
 
 parser.add_argument('--batch_size', type=int, default=64)

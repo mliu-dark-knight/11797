@@ -37,16 +37,14 @@ def model_output(config, model, full_batch, context_idxs, context_idxs_r, ques_i
 	if return_yp:
 		logit1, logit2, _, _, _ = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
 		                                None, None, None, stage='reason', return_yp=return_yp)
-
 		batch_p = 1. - torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy()
 		para_limit = context_idxs.size()[1]
-		sent_limit = min(config.sent_limit, max([len(data[START_END_FACTS_KEY]) for data in full_batch]))
 		char_limit = config.char_limit
 		debug = config.debug
-		cur_batch = sample_sent(full_batch, para_limit, char_limit, sent_limit, batch_p=batch_p)
+		cur_batch = sample_sent(full_batch, para_limit, char_limit, batch_p=batch_p)
 
 		context_idxs_r, context_char_idxs_r, _, _, _, _, _ \
-			= build_ctx_tensor(cur_batch, sent_limit, char_limit, not debug)
+			= build_ctx_tensor(cur_batch, char_limit, not debug)
 		_, _, _, y_offsets_r = build_ans_tensor(cur_batch, not debug)
 		y_offsets_r += y_offsets
 
@@ -84,7 +82,7 @@ def unpack(data):
 
 def build_iterator(config, buckets, batch_size, shuffle, num_word, num_char, p):
 	return DataIterator(buckets, batch_size, config.para_limit, config.ques_limit, config.char_limit,
-	                    shuffle, config.sent_limit, num_word, num_char, debug=config.debug, p=p)
+	                    shuffle, num_word, num_char, debug=config.debug, p=p)
 
 
 def train(config):

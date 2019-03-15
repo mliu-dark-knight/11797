@@ -12,11 +12,11 @@ def overlap_span(start, end, y1, y2):
 	return y1 <= start and y2 >= end
 
 
-def sample_sent(batch, para_limit, char_limit, sent_limit, p=0.0, batch_p=None):
+def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
 	new_batch = []
 	for batch_i, data in enumerate(batch):
-		length = min(sent_limit, len(data[START_END_FACTS_KEY]))
-		drop = np.random.rand(length) < (batch_p[batch_i][:length] if batch_p is not None else p)
+		sent_cnt = len(data[START_END_FACTS_KEY])
+		drop = np.random.rand(sent_cnt) < (batch_p[batch_i][:sent_cnt] if batch_p is not None else p)
 		num_word_drop = 0
 		context_idxs = data[CONTEXT_IDXS_KEY].data.new(para_limit).fill_(0)
 		context_char_idxs = data[CONTEXT_CHAR_IDXS_KEY].data.new(para_limit, char_limit).fill_(0)
@@ -24,7 +24,7 @@ def sample_sent(batch, para_limit, char_limit, sent_limit, p=0.0, batch_p=None):
 		y2 = data[Y2_KEY]
 		y_offset = 0
 		start_end_facts = []
-		for j, cur_sp_dp in enumerate(data[START_END_FACTS_KEY][:sent_limit]):
+		for j, cur_sp_dp in enumerate(data[START_END_FACTS_KEY]):
 			if len(cur_sp_dp) == 3:
 				start, end, is_sp_flag = tuple(cur_sp_dp)
 				is_gold = False
@@ -73,10 +73,10 @@ def build_ques_tensor(batch, char_limit, cuda):
 	return ques_idxs, ques_char_idxs
 
 
-def build_ctx_tensor(batch, sent_limit, char_limit, cuda):
+def build_ctx_tensor(batch, char_limit, cuda):
 	bsz = len(batch)
 	max_c_len = max([(data[CONTEXT_IDXS_KEY] > 0).long().sum().item() for data in batch])
-	max_sent_cnt = min(sent_limit, max([len(data[START_END_FACTS_KEY]) for data in batch]))
+	max_sent_cnt = max([len(data[START_END_FACTS_KEY]) for data in batch])
 	assert max_c_len > 0 and max_sent_cnt > 0
 	context_idxs = torch.LongTensor(bsz, max_c_len)
 	context_char_idxs = torch.LongTensor(bsz, max_c_len, char_limit)
@@ -99,7 +99,6 @@ def build_ctx_tensor(batch, sent_limit, char_limit, cuda):
 		context_lens[i] = (batch[i][CONTEXT_IDXS_KEY] > 0).long().sum()
 
 		for j, cur_sp_dp in enumerate(batch[i][START_END_FACTS_KEY]):
-			if j >= sent_limit: break
 			if len(cur_sp_dp) == 3:
 				start, end, is_sp_flag = tuple(cur_sp_dp)
 			else:
@@ -148,7 +147,7 @@ def build_ans_tensor(batch, cuda):
 
 
 class DataIterator(object):
-	def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, sent_limit, num_word, num_char,
+	def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, num_word, num_char,
 	             debug=False, p=0.0):
 		self.buckets = buckets
 		self.bsz = bsz
@@ -163,7 +162,6 @@ class DataIterator(object):
 					ques_limit = max(ques_limit, dp[QUES_IDXS_KEY].size(0))
 			self.para_limit, self.ques_limit = para_limit, ques_limit
 		self.char_limit = char_limit
-		self.sent_limit = sent_limit
 		self.num_word = num_word
 		self.num_char = num_char
 
@@ -187,20 +185,20 @@ class DataIterator(object):
 
 			cur_batch = cur_bucket[start_id: start_id + cur_bsz]
 			if self.debug:
-				cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, self.sent_limit, p=self.p)
+				cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p)
 			cur_batch.sort(key=lambda x: (x[CONTEXT_IDXS_KEY] > 0).long().sum(), reverse=True)
 			full_batch = cur_batch
 
 			ids = [data[ID_KEY] for data in cur_batch]
 			context_idxs, context_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, is_support = \
-				build_ctx_tensor(cur_batch, self.sent_limit, self.char_limit, not self.debug)
+				build_ctx_tensor(cur_batch, self.char_limit, not self.debug)
 			ques_idxs, ques_char_idxs = build_ques_tensor(cur_batch, self.char_limit, not self.debug)
 			_, _, _, y_offsets = build_ans_tensor(cur_batch, not self.debug)
 
-			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, self.sent_limit, p=self.p)
+			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p)
 
 			context_idxs_r, context_char_idxs_r, _, _, _, _, _ \
-				= build_ctx_tensor(cur_batch, self.sent_limit, self.char_limit, not self.debug)
+				= build_ctx_tensor(cur_batch, self.char_limit, not self.debug)
 			y1_r, y2_r, q_type, _ = build_ans_tensor(cur_batch, not self.debug)
 
 			self.bkt_ptrs[bkt_id] += cur_bsz
