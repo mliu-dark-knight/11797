@@ -12,10 +12,10 @@ def overlap_span(start, end, y1, y2):
 	return y1 <= start and y2 >= end
 
 
-def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
+def sample_sent(batch, para_limit, char_limit, sent_limit, p=0.0, batch_p=None):
 	new_batch = []
 	for batch_i, data in enumerate(batch):
-		length = len(data[START_END_FACTS_KEY])
+		length = min(sent_limit, len(data[START_END_FACTS_KEY]))
 		drop = np.random.rand(length) < (batch_p[batch_i][:length] if batch_p is not None else p)
 		num_word_drop = 0
 		context_idxs = data[CONTEXT_IDXS_KEY].data.new(para_limit).fill_(0)
@@ -24,7 +24,7 @@ def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
 		y2 = data[Y2_KEY]
 		y_offset = 0
 		start_end_facts = []
-		for j, cur_sp_dp in enumerate(data[START_END_FACTS_KEY]):
+		for j, cur_sp_dp in enumerate(data[START_END_FACTS_KEY][:sent_limit]):
 			if len(cur_sp_dp) == 3:
 				start, end, is_sp_flag = tuple(cur_sp_dp)
 				is_gold = False
