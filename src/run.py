@@ -119,7 +119,7 @@ def train(config):
 
 	def build_train_iterator():
 		return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit,
-		                    True, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug, p=config.p)
+		                    config.debug, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug, p=config.p)
 
 	def build_dev_iterator():
 		return DataIterator(dev_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit,
@@ -172,7 +172,7 @@ def train(config):
 
 			if global_step % config.checkpoint == 0:
 				model.eval()
-				metrics = evaluate_batch(build_dev_iterator(), model, 0, dev_eval_file, config)
+				metrics = evaluate_batch(build_dev_iterator(), model, 1 if config.debug else 0, dev_eval_file, config)
 				model.train()
 
 				logging('-' * 89)
