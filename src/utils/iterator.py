@@ -187,7 +187,8 @@ class DataIterator(object):
 			cur_bsz = min(self.bsz, len(cur_bucket) - start_id)
 
 			cur_batch = cur_bucket[start_id: start_id + cur_bsz]
-			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p)
+			if self.debug:
+				cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p)
 			cur_batch.sort(key=lambda x: (x[CONTEXT_IDXS_KEY] > 0).long().sum(), reverse=True)
 			full_batch = cur_batch
 
