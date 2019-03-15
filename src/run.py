@@ -46,7 +46,7 @@ def model_output(config, model, full_batch, context_idxs, context_idxs_r, ques_i
 
 		context_idxs_r, context_char_idxs_r, _, _, _, _, _ \
 			= build_ctx_tensor(cur_batch, sent_limit, char_limit, not debug)
-		y1_r, y2_r, q_type, y_offsets_r = build_ans_tensor(cur_batch, not debug)
+		_, _, _, y_offsets_r = build_ans_tensor(cur_batch, not debug)
 		y_offsets_r += y_offsets
 
 		_, _, predict_type, yp1, yp2 = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,

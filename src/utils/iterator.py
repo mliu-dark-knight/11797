@@ -94,6 +94,7 @@ def build_ctx_tensor(batch, sent_limit, char_limit, cuda):
 		start_mapping = start_mapping.cuda()
 		end_mapping = end_mapping.cuda()
 		all_mapping = all_mapping.cuda()
+		is_support = is_support.cuda()
 	for i in range(len(batch)):
 		context_idxs[i].copy_(batch[i][CONTEXT_IDXS_KEY][:max_c_len])
 		context_char_idxs[i].copy_(batch[i][CONTEXT_CHAR_IDXS_KEY][:max_c_len])
