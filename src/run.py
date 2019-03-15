@@ -1,3 +1,4 @@
+import math
 import os
 import shutil
 import time
@@ -81,6 +82,11 @@ def unpack(data):
 	       context_lens, y1_r, y2_r, y_offsets, q_type, is_support, start_mapping, end_mapping, all_mapping
 
 
+def build_iterator(config, buckets, batch_size, shuffle, num_word, num_char, p):
+	return DataIterator(buckets, batch_size, config.para_limit, config.ques_limit, config.char_limit,
+	                    shuffle, config.sent_limit, num_word, num_char, debug=config.debug, p=p)
+
+
 def train(config):
 	if config.debug:
 		word_mat = np.random.rand(395261, 300)
@@ -117,14 +123,6 @@ def train(config):
 	train_buckets = get_buckets(config.train_record_file)
 	dev_buckets = get_buckets(config.dev_record_file)
 
-	def build_train_iterator():
-		return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit,
-		                    config.debug, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug, p=config.p)
-
-	def build_dev_iterator():
-		return DataIterator(dev_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit,
-		                    False, config.sent_limit, len(word_mat), len(char_mat), debug=config.debug, p=config.p)
-
 	model = HOPModel(config, word_mat, char_mat)
 
 	logging('nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
@@ -142,7 +140,8 @@ def train(config):
 	model.train()
 
 	for epoch in range(config.epoch):
-		for data in build_train_iterator():
+		for data in build_iterator(config, train_buckets, config.batch_size, not config.debug, len(word_mat),
+		                           len(char_mat), config.p):
 			_, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
 			context_lens, y1_r, y2_r, _, q_type, is_support, start_mapping, end_mapping, all_mapping = unpack(data)
 
@@ -172,7 +171,10 @@ def train(config):
 
 			if global_step % config.checkpoint == 0:
 				model.eval()
-				metrics = evaluate_batch(build_dev_iterator(), model, 1 if config.debug else 0, dev_eval_file, config)
+				metrics = evaluate_batch(
+					build_iterator(config, dev_buckets, math.ceil(config.batch_size / 2), False, len(word_mat),
+					               len(char_mat), config.p),
+					model, 1 if config.debug else 0, dev_eval_file, config)
 				model.train()
 
 				logging('-' * 89)
@@ -298,15 +300,12 @@ def test(config):
 		ques_limit = None
 		dev_buckets = get_buckets(config.test_record_file)
 
-	def build_dev_iterator():
-		return DataIterator(dev_buckets, config.batch_size, para_limit,
-		                    ques_limit, config.char_limit, False, config.sent_limit, len(word_mat), len(char_mat),
-		                    debug=config.debug, p=0.0)
-
 	model = HOPModel(config, word_mat, char_mat)
 	ori_model = model if config.debug else model.cuda()
 	ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
 	model = nn.DataParallel(ori_model)
 
 	model.eval()
-	predict(build_dev_iterator(), model, dev_eval_file, config, config.prediction_file)
+	predict(
+		build_iterator(config, math.ceil(config.batch_size / 2), dev_buckets, False, len(word_mat), len(char_mat), 0.0),
+		model, dev_eval_file, config, config.prediction_file)
