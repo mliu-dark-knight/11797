@@ -56,16 +56,16 @@ parser.add_argument('--sent_limit', type=int, default=100)
 parser.add_argument('--char_limit', type=int, default=16)
 
 parser.add_argument('--batch_size', type=int, default=64)
+parser.add_argument('--epoch', type=int, default=5)
 parser.add_argument('--checkpoint', type=int, default=1000)
 parser.add_argument('--period', type=int, default=100)
 parser.add_argument('--init_lr', type=float, default=0.5)
 parser.add_argument('--keep_prob', type=float, default=0.8)
 parser.add_argument('--hidden', type=int, default=80)
 parser.add_argument('--char_hidden', type=int, default=100)
-parser.add_argument('--reason_step', type=int, default=2)
+parser.add_argument('--reason_step', type=int, default=1)
 parser.add_argument('--patience', type=int, default=1)
 parser.add_argument('--seed', type=int, default=13)
-parser.add_argument('--baseline', default=False, action='store_true')
 
 parser.add_argument('--sp_lambda', type=float, default=1.0)
 
