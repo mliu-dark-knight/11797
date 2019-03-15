@@ -59,7 +59,7 @@ parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--epoch', type=int, default=5)
 parser.add_argument('--checkpoint', type=int, default=1000)
 parser.add_argument('--period', type=int, default=100)
-parser.add_argument('--init_lr', type=float, default=0.5)
+parser.add_argument('--init_lr', type=float, default=1e-2)
 parser.add_argument('--keep_prob', type=float, default=0.8)
 parser.add_argument('--hidden', type=int, default=80)
 parser.add_argument('--char_hidden', type=int, default=100)
@@ -87,6 +87,12 @@ config.test_record_file = _concat(config.test_record_file)
 # config.train_eval_file = _concat(config.train_eval_file)
 config.dev_eval_file = _concat(config.dev_eval_file)
 config.test_eval_file = _concat(config.test_eval_file)
+if config.debug:
+    config.batch_size = 4
+    config.checkpoint = 1
+    config.period = 1
+    config.train_record_file = config.dev_record_file
+    config.train_eval_file = config.dev_eval_file
 
 if __name__ == '__main__':
     if config.mode == 'train':
