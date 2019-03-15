@@ -187,7 +187,7 @@ class DataIterator(object):
 
 			cur_batch = cur_bucket[start_id: start_id + cur_bsz]
 			if self.debug:
-				cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p)
+				cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, self.sent_limit, p=self.p)
 			cur_batch.sort(key=lambda x: (x[CONTEXT_IDXS_KEY] > 0).long().sum(), reverse=True)
 			full_batch = cur_batch
 
@@ -197,7 +197,7 @@ class DataIterator(object):
 			ques_idxs, ques_char_idxs = build_ques_tensor(cur_batch, self.char_limit, not self.debug)
 			_, _, _, y_offsets = build_ans_tensor(cur_batch, not self.debug)
 
-			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p)
+			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, self.sent_limit, p=self.p)
 
 			context_idxs_r, context_char_idxs_r, _, _, _, _, _ \
 				= build_ctx_tensor(cur_batch, self.sent_limit, self.char_limit, not self.debug)
