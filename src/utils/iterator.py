@@ -45,6 +45,8 @@ def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
 		if y1 >= 0:
 			y1 = data[Y1_KEY] - num_word_drop
 			y2 = data[Y2_KEY] - num_word_drop
+		else:
+			y_offset = 0
 		assert y1 < (context_idxs > 0).long().sum().item() and y2 < (context_idxs > 0).long().sum().item()
 		new_batch.append({
 			CONTEXT_IDXS_KEY: context_idxs,
@@ -125,7 +127,7 @@ def build_ans_tensor(batch, cuda):
 			y1[i] = batch[i][Y1_KEY]
 			y2[i] = batch[i][Y2_KEY]
 			q_type[i] = 0
-		elif batch[i]['y1'] == -1:
+		elif batch[i][Y1_KEY] == -1:
 			y1[i] = IGNORE_INDEX
 			y2[i] = IGNORE_INDEX
 			q_type[i] = 1
