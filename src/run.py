@@ -9,6 +9,7 @@ from torch.autograd import Variable
 from tqdm import tqdm
 
 from model.hop_model import HOPModel
+from model.sp_model import SPModel
 from utils.iterator import *
 
 nll_sum = nn.CrossEntropyLoss(size_average=False, ignore_index=IGNORE_INDEX)
@@ -27,6 +28,22 @@ def create_exp_dir(path, scripts_to_save=None):
 		for script in scripts_to_save:
 			dst_file = os.path.join(path, 'scripts', os.path.basename(script))
 			shutil.copyfile(script, dst_file)
+
+
+
+def baseline_output(model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
+                    start_mapping, end_mapping, all_mapping, y_offsets, return_yp=False):
+	if return_yp:
+		logit1, logit2, predict_type, predict_support, yp1, yp2 \
+			= model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
+			        start_mapping, end_mapping, all_mapping, return_yp=True)
+		return logit1, logit2, predict_support, predict_type, \
+		       yp1.data.cpu().numpy() + y_offsets, yp2.data.cpu().numpy() + y_offsets
+	logit1, logit2, predict_type, predict_support \
+		= model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
+		        start_mapping, end_mapping, all_mapping, return_yp=False)
+	return logit1, logit2, predict_support, predict_type
+
 
 
 def model_output(config, model, full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs,
@@ -128,7 +145,7 @@ def train(config):
 	train_buckets = get_buckets(config.train_record_file)
 	dev_buckets = get_buckets(config.dev_record_file)
 
-	model = HOPModel(config, word_mat, char_mat)
+	model = HOPModel(config, word_mat, char_mat) if not config.baseline else SPModel(config, word_mat, char_mat)
 
 	logging('nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
 	ori_model = model if config.cpu else model.cuda()
@@ -151,9 +168,15 @@ def train(config):
 			context_lens, _, y1_r, _, y2_r, _, _, q_type, is_support, start_mapping, end_mapping, all_mapping \
 				= unpack(data)
 
-			logit1, logit2, predict_support, predict_type = model_output(
-				config, model, None, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r,
-				ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, None, None, return_yp=False)
+			if not config.baseline:
+				logit1, logit2, predict_support, predict_type = model_output(
+					config, model, None, context_idxs, context_idxs_r, ques_idxs,
+					context_char_idxs, context_char_idxs_r, ques_char_idxs, context_lens,
+					start_mapping, end_mapping, all_mapping, None, None, return_yp=False)
+			else:
+				logit1, logit2, predict_support, predict_type = baseline_output(
+					model, context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs, context_lens,
+					start_mapping, end_mapping, all_mapping, None, return_yp=False)
 
 			loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) +
 			          nll_sum(logit2, y2_r)) / context_idxs.size(0)
@@ -213,10 +236,15 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		context_lens, y1, y1_r, y2, y2_r, y_offsets, y_offsets_r, q_type, is_support, \
 		start_mapping, end_mapping, all_mapping = unpack(data)
 
-		logit1, logit2, predict_support, predict_type, yp1, yp2 = model_output(
-			config, model, full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r,
-			ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, y_offsets, y_offsets_r,
-			return_yp=True)
+		if not config.baseline:
+			logit1, logit2, predict_support, predict_type, yp1, yp2 = model_output(
+				config, model, full_batch, context_idxs, context_idxs_r, ques_idxs,
+				context_char_idxs, context_char_idxs_r, ques_char_idxs, context_lens,
+				start_mapping, end_mapping, all_mapping, y_offsets, y_offsets_r, return_yp=True)
+		else:
+			logit1, logit2, predict_support, predict_type, yp1, yp2 = baseline_output(
+				model, context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs, context_lens,
+				start_mapping, end_mapping, all_mapping, y_offsets_r, return_yp=True)
 
 		loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) + nll_sum(logit2, y2_r)) / context_idxs.size(0) + \
 		       config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
@@ -293,20 +321,9 @@ def test(config):
 	torch.manual_seed(config.seed)
 	torch.cuda.manual_seed_all(config.seed)
 
-	def logging(s, print_=True, log_=True):
-		if print_:
-			print(s)
-		if log_:
-			with open(os.path.join(config.save, 'log.txt'), 'a+') as f_log:
-				f_log.write(s + '\n')
-
 	if config.data_split == 'dev':
 		dev_buckets = get_buckets(config.dev_record_file)
-		para_limit = config.para_limit
-		ques_limit = config.ques_limit
 	elif config.data_split == 'test':
-		para_limit = None
-		ques_limit = None
 		dev_buckets = get_buckets(config.test_record_file)
 
 	model = HOPModel(config, word_mat, char_mat)
