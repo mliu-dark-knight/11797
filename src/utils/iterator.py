@@ -22,7 +22,7 @@ def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
 			context_idxs = data[CONTEXT_IDXS_KEY].data.new(para_limit).fill_(0)
 			context_char_idxs = data[CONTEXT_CHAR_IDXS_KEY].data.new(para_limit, char_limit).fill_(0)
 		else:
-			context_idxs = data[CONTEXT_LENS_KEY]
+			context_idxs = data[CONTEXT_IDXS_KEY]
 			context_char_idxs = data[CONTEXT_CHAR_IDXS_KEY]
 		y1 = data[Y1_KEY]
 		y2 = data[Y2_KEY]
