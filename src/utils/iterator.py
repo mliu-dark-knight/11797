@@ -163,7 +163,7 @@ def build_ans_tensor(batch, cuda):
 
 class DataIterator(object):
 	def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, num_word, num_char,
-	             debug=False, p=0.0):
+	             cpu=False, debug=False, p=0.0):
 		self.buckets = buckets
 		self.bsz = bsz
 		if para_limit is not None and ques_limit is not None:
@@ -187,6 +187,7 @@ class DataIterator(object):
 				random.shuffle(self.buckets[i])
 		self.bkt_ptrs = [0 for i in range(self.num_buckets)]
 		self.shuffle = shuffle
+		self.cpu = cpu
 		self.debug = debug
 		self.p = p
 
@@ -206,15 +207,15 @@ class DataIterator(object):
 
 			ids = [data[ID_KEY] for data in cur_batch]
 			context_idxs, context_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, is_support = \
-				build_ctx_tensor(cur_batch, self.char_limit, not self.debug)
-			ques_idxs, ques_char_idxs = build_ques_tensor(cur_batch, self.char_limit, not self.debug)
-			y1, y2, _, y_offsets = build_ans_tensor(cur_batch, not self.debug)
+				build_ctx_tensor(cur_batch, self.char_limit, not self.cpu)
+			ques_idxs, ques_char_idxs = build_ques_tensor(cur_batch, self.char_limit, not self.cpu)
+			y1, y2, _, y_offsets = build_ans_tensor(cur_batch, not self.cpu)
 
 			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p)
 
 			context_idxs_r, context_char_idxs_r, _, _, _, _, _ \
-				= build_ctx_tensor(cur_batch, self.char_limit, not self.debug)
-			y1_r, y2_r, q_type, y_offsets_r = build_ans_tensor(cur_batch, not self.debug)
+				= build_ctx_tensor(cur_batch, self.char_limit, not self.cpu)
+			y1_r, y2_r, q_type, y_offsets_r = build_ans_tensor(cur_batch, not self.cpu)
 
 			self.bkt_ptrs[bkt_id] += cur_bsz
 			if self.bkt_ptrs[bkt_id] >= len(cur_bucket):

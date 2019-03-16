@@ -45,12 +45,12 @@ def model_output(config, model, full_batch, context_idxs, context_idxs_r, ques_i
 			batch_p = torch.sigmoid(predict_support[:, :, 1]).data.cpu() < config.sp_threshold
 			para_limit = context_idxs.size()[1]
 			char_limit = config.char_limit
-			debug = config.debug
+			cpu = config.cpu
 			cur_batch = sample_sent(full_batch, para_limit, char_limit, batch_p=batch_p)
 
 			context_idxs_r, context_char_idxs_r, _, _, _, _, _ \
-				= build_ctx_tensor(cur_batch, char_limit, not debug)
-			_, _, _, y_offsets_r = build_ans_tensor(cur_batch, not debug)
+				= build_ctx_tensor(cur_batch, char_limit, not cpu)
+			_, _, _, y_offsets_r = build_ans_tensor(cur_batch, not cpu)
 			_, _, predict_type, yp1, yp2 = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
 			                                     None, None, None, stage='reason', return_yp=True)
 		return logit1, logit2, predict_support, predict_type, \
@@ -89,7 +89,7 @@ def unpack(data):
 
 def build_iterator(config, buckets, batch_size, shuffle, num_word, num_char, p):
 	return DataIterator(buckets, batch_size, config.para_limit, config.ques_limit, config.char_limit,
-	                    shuffle, num_word, num_char, debug=config.debug, p=p)
+	                    shuffle, num_word, num_char, cpu=config.cpu, debug=config.debug, p=p)
 
 
 def train(config):
@@ -131,7 +131,7 @@ def train(config):
 	model = HOPModel(config, word_mat, char_mat)
 
 	logging('nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
-	ori_model = model if config.debug else model.cuda()
+	ori_model = model if config.cpu else model.cuda()
 	model = nn.DataParallel(ori_model)
 
 	lr = config.init_lr
@@ -310,7 +310,7 @@ def test(config):
 		dev_buckets = get_buckets(config.test_record_file)
 
 	model = HOPModel(config, word_mat, char_mat)
-	ori_model = model if config.debug else model.cuda()
+	ori_model = model if config.cpu else model.cuda()
 	ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
 	model = nn.DataParallel(ori_model)
 
