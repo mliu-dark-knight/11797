@@ -151,7 +151,6 @@ def train(config):
 
 	lr = config.init_lr
 	optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.init_lr)
-	# cur_patience = 0
 	total_loss = 0
 	global_step = 0
 	best_dev_F1 = None
@@ -221,17 +220,6 @@ def train(config):
 				if best_dev_F1 is None or dev_F1 > best_dev_F1:
 					best_dev_F1 = dev_F1
 					torch.save(ori_model.state_dict(), os.path.join(config.save, 'model.pt'))
-					# cur_patience = 0
-				# else:
-				# 	cur_patience += 1
-				# 	if cur_patience >= config.patience:
-				# 		lr /= 2.0
-				# 		for param_group in optimizer.param_groups:
-				# 			param_group['lr'] = lr
-				# 		if lr < config.init_lr * 1e-2:
-				# 			stop_train = True
-				# 			break
-				# 		cur_patience = 0
 				if stop_train: break
 	logging('best_dev_F1 {}'.format(best_dev_F1))
 
