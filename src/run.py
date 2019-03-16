@@ -30,7 +30,6 @@ def create_exp_dir(path, scripts_to_save=None):
 			shutil.copyfile(script, dst_file)
 
 
-
 def baseline_output(model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
                     start_mapping, end_mapping, all_mapping, y_offsets, return_yp=False):
 	if return_yp:
@@ -43,7 +42,6 @@ def baseline_output(model, context_idxs, ques_idxs, context_char_idxs, ques_char
 		= model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
 		        start_mapping, end_mapping, all_mapping, return_yp=False)
 	return logit1, logit2, predict_support, predict_type
-
 
 
 def model_output(config, model, full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs,
@@ -176,7 +174,7 @@ def train(config):
 					start_mapping, end_mapping, all_mapping, None, None, return_yp=False)
 			else:
 				logit1, logit2, predict_support, predict_type = baseline_output(
-					model, context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs, context_lens,
+					model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
 					start_mapping, end_mapping, all_mapping, None, return_yp=False)
 
 			loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) +
@@ -255,8 +253,8 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 				start_mapping, end_mapping, all_mapping, y_offsets, y_offsets_r, return_yp=True)
 		else:
 			logit1, logit2, predict_support, predict_type, yp1, yp2 = baseline_output(
-				model, context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs, context_lens,
-				start_mapping, end_mapping, all_mapping, y_offsets_r, return_yp=True)
+				model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
+				start_mapping, end_mapping, all_mapping, y_offsets, return_yp=True)
 
 		loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) + nll_sum(logit2, y2_r)) / context_idxs.size(0) + \
 		       config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
