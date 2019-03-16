@@ -18,8 +18,12 @@ def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
 		sent_cnt = len(data[START_END_FACTS_KEY])
 		drop = np.random.rand(sent_cnt) < (batch_p[batch_i][:sent_cnt] if batch_p is not None else p)
 		num_word_drop = 0
-		context_idxs = data[CONTEXT_IDXS_KEY].data.new(para_limit).fill_(0)
-		context_char_idxs = data[CONTEXT_CHAR_IDXS_KEY].data.new(para_limit, char_limit).fill_(0)
+		if p > 0.:
+			context_idxs = data[CONTEXT_IDXS_KEY].data.new(para_limit).fill_(0)
+			context_char_idxs = data[CONTEXT_CHAR_IDXS_KEY].data.new(para_limit, char_limit).fill_(0)
+		else:
+			context_idxs = data[CONTEXT_LENS_KEY]
+			context_char_idxs = data[CONTEXT_CHAR_IDXS_KEY]
 		y1 = data[Y1_KEY]
 		y2 = data[Y2_KEY]
 		y_offset = 0
@@ -36,9 +40,10 @@ def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
 					y_offset = num_word_drop
 					is_sp_flag = True
 				if is_sp_flag or is_gold or not drop[j]:
-					context_idxs[start - num_word_drop:end - num_word_drop] = data[CONTEXT_IDXS_KEY][start:end]
-					context_char_idxs[start - num_word_drop:end - num_word_drop, :] \
-						= data[CONTEXT_CHAR_IDXS_KEY][start:end]
+					if p > 0.:
+						context_idxs[start - num_word_drop:end - num_word_drop] = data[CONTEXT_IDXS_KEY][start:end]
+						context_char_idxs[start - num_word_drop:end - num_word_drop, :] \
+							= data[CONTEXT_CHAR_IDXS_KEY][start:end]
 					start_end_facts.append((start - num_word_drop, end - num_word_drop, is_sp_flag or is_gold))
 				else:
 					num_word_drop += (end - start)
@@ -140,8 +145,7 @@ def build_ans_tensor(batch, cuda):
 			q_type[i] = 3
 		else:
 			assert False
-		if Y_OFFSET_KEY in batch[i]:
-			y_offsets[i] = batch[i][Y_OFFSET_KEY]
+		y_offsets[i] = batch[i][Y_OFFSET_KEY]
 	if cuda:
 		y1 = y1.cuda()
 		y2 = y2.cuda()
@@ -187,8 +191,8 @@ class DataIterator(object):
 			cur_bsz = min(self.bsz, len(cur_bucket) - start_id)
 
 			cur_batch = cur_bucket[start_id: start_id + cur_bsz]
-			if self.debug:
-				cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p)
+			# update support flag
+			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p if self.debug else 0.)
 			cur_batch.sort(key=lambda x: (x[CONTEXT_IDXS_KEY] > 0).long().sum(), reverse=True)
 			full_batch = cur_batch
 
