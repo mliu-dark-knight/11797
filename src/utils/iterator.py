@@ -208,13 +208,13 @@ class DataIterator(object):
 			context_idxs, context_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, is_support = \
 				build_ctx_tensor(cur_batch, self.char_limit, not self.debug)
 			ques_idxs, ques_char_idxs = build_ques_tensor(cur_batch, self.char_limit, not self.debug)
-			_, _, _, y_offsets = build_ans_tensor(cur_batch, not self.debug)
+			y1, y2, _, y_offsets = build_ans_tensor(cur_batch, not self.debug)
 
 			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p)
 
 			context_idxs_r, context_char_idxs_r, _, _, _, _, _ \
 				= build_ctx_tensor(cur_batch, self.char_limit, not self.debug)
-			y1_r, y2_r, q_type, _ = build_ans_tensor(cur_batch, not self.debug)
+			y1_r, y2_r, q_type, y_offsets_r = build_ans_tensor(cur_batch, not self.debug)
 
 			self.bkt_ptrs[bkt_id] += cur_bsz
 			if self.bkt_ptrs[bkt_id] >= len(cur_bucket):
@@ -234,8 +234,11 @@ class DataIterator(object):
 				START_MAPPING_KEY: start_mapping,
 				END_MAPPING_KEY: end_mapping,
 				ALL_MAPPING_KEY: all_mapping,
+				Y1_KEY: y1,
 				Y1_R_KEY: y1_r,
+				Y2_KEY: y2,
 				Y2_R_KEY: y2_r,
 				Y_OFFSETS_KEY: y_offsets,
+				Y_OFFSETS_R_KEY: y_offsets_r,
 				Q_TYPE_KEY: q_type,
 			}
