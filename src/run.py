@@ -37,7 +37,7 @@ def model_output(config, model, full_batch, context_idxs, context_idxs_r, ques_i
 	if return_yp:
 		logit1, logit2, _, _, _ = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
 		                                None, None, None, stage='reason', return_yp=return_yp)
-		batch_p = 1. - torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy()
+		batch_p = torch.sigmoid(predict_support[:, :, 1]).data.cpu() < config.sp_threshold
 		para_limit = context_idxs.size()[1]
 		char_limit = config.char_limit
 		debug = config.debug

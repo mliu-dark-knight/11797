@@ -13,10 +13,18 @@ def overlap_span(start, end, y1, y2):
 
 
 def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
+	'''
+	:param batch:
+	:param para_limit:
+	:param char_limit:
+	:param p:
+	:param batch_p: an array of bool, drop sentence if True
+	:return:
+	'''
 	new_batch = []
 	for batch_i, data in enumerate(batch):
 		sent_cnt = len(data[START_END_FACTS_KEY])
-		drop = np.random.rand(sent_cnt) < (batch_p[batch_i][:sent_cnt] if batch_p is not None else p)
+		drop = batch_p if batch_p is not None else np.random.rand(sent_cnt) < p
 		num_word_drop = 0
 		if p > 0.:
 			context_idxs = data[CONTEXT_IDXS_KEY].data.new(para_limit).fill_(0)
