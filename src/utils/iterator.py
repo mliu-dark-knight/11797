@@ -32,9 +32,8 @@ def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
 				start, end, is_sp_flag, is_gold = tuple(cur_sp_dp)
 			if start < end:
 				if overlap_span(start, end, y1, y2):
+					# warning: do not change y1, y2 here
 					y_offset = num_word_drop
-					y1 = data[Y1_KEY] - num_word_drop
-					y2 = data[Y2_KEY] - num_word_drop
 					is_sp_flag = True
 				if is_sp_flag or is_gold or not drop[j]:
 					context_idxs[start - num_word_drop:end - num_word_drop] = data[CONTEXT_IDXS_KEY][start:end]
@@ -43,6 +42,8 @@ def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
 					start_end_facts.append((start - num_word_drop, end - num_word_drop, is_sp_flag or is_gold))
 				else:
 					num_word_drop += (end - start)
+		y1 = data[Y1_KEY] - num_word_drop
+		y2 = data[Y2_KEY] - num_word_drop
 		assert y1 < (context_idxs > 0).long().sum().item() and y2 < (context_idxs > 0).long().sum().item()
 		new_batch.append({
 			CONTEXT_IDXS_KEY: context_idxs,
