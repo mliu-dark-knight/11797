@@ -44,10 +44,9 @@ def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
 					y_offset = num_word_drop
 					is_sp_flag = True
 				if is_sp_flag or is_gold or not drop[j]:
-					if p > 0.:
-						context_idxs[start - num_word_drop:end - num_word_drop] = data[CONTEXT_IDXS_KEY][start:end]
-						context_char_idxs[start - num_word_drop:end - num_word_drop, :] \
-							= data[CONTEXT_CHAR_IDXS_KEY][start:end]
+					context_idxs[start - num_word_drop:end - num_word_drop] = data[CONTEXT_IDXS_KEY][start:end]
+					context_char_idxs[start - num_word_drop:end - num_word_drop, :] \
+						= data[CONTEXT_CHAR_IDXS_KEY][start:end]
 					start_end_facts.append((start - num_word_drop, end - num_word_drop, is_sp_flag or is_gold))
 				else:
 					num_word_drop += (end - start)
