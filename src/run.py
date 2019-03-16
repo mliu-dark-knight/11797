@@ -164,7 +164,7 @@ def train(config):
 		for data in build_iterator(config, train_buckets, config.batch_size, not config.debug, len(word_mat),
 		                           len(char_mat), config.p):
 			_, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
-			context_lens, _, y1_r, _, y2_r, _, _, q_type, is_support, start_mapping, end_mapping, all_mapping \
+			context_lens, y1, y1_r, y2, y2_r, _, _, q_type, is_support, start_mapping, end_mapping, all_mapping \
 				= unpack(data)
 
 			if not config.baseline:
@@ -176,9 +176,12 @@ def train(config):
 				logit1, logit2, predict_support, predict_type = baseline_output(
 					model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
 					start_mapping, end_mapping, all_mapping, None, return_yp=False)
-
-			loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) +
-			          nll_sum(logit2, y2_r)) / context_idxs.size(0)
+			if not config.baseline:
+				loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) +
+				          nll_sum(logit2, y2_r)) / context_idxs.size(0)
+			else:
+				loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) +
+				          nll_sum(logit2, y2)) / context_idxs.size(0)
 			loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
 			loss = loss_1 + config.sp_lambda * loss_2
 
@@ -255,9 +258,12 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 			logit1, logit2, predict_support, predict_type, yp1, yp2 = baseline_output(
 				model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
 				start_mapping, end_mapping, all_mapping, y_offsets, return_yp=True)
-
-		loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) + nll_sum(logit2, y2_r)) / context_idxs.size(0) + \
-		       config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
+		if not config.baseline:
+			loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) + nll_sum(logit2, y2_r)) / context_idxs.size(0) + \
+			       config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
+		else:
+			loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) + \
+			       config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
 
 		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(predict_type.data.cpu().numpy(), 1))
 		answer_dict.update(answer_dict_)
