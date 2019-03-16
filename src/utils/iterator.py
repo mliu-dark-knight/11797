@@ -24,7 +24,7 @@ def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
 	new_batch = []
 	for batch_i, data in enumerate(batch):
 		sent_cnt = len(data[START_END_FACTS_KEY])
-		drop = batch_p if batch_p is not None else np.random.rand(sent_cnt) < p
+		drop = batch_p[batch_i] if batch_p is not None else np.random.rand(sent_cnt) < p
 		num_word_drop = 0
 		if p > 0.:
 			context_idxs = data[CONTEXT_IDXS_KEY].data.new(para_limit).fill_(0)
