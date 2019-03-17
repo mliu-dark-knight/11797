@@ -12,7 +12,7 @@ def overlap_span(start, end, y1, y2):
 	return y1 <= start and y2 >= end
 
 
-def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
+def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None, force_drop=False):
 	'''
 	:param batch:
 	:param para_limit:
@@ -31,6 +31,7 @@ def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
 		y1 = data[Y1_KEY]
 		y2 = data[Y2_KEY]
 		y_offset = 0
+		orig_idxs = np.zeros(para_limit).astype(int)
 		start_end_facts = []
 		for j, cur_sp_dp in enumerate(data[START_END_FACTS_KEY]):
 			if len(cur_sp_dp) == 3:
@@ -43,29 +44,34 @@ def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None):
 					# warning: do not change y1, y2 here
 					y_offset = num_word_drop
 					is_sp_flag = True
-				if is_sp_flag or is_gold or not drop[j]:
+				if (not drop[j]) or ((is_sp_flag or is_gold) and not force_drop):
 					context_idxs[start - num_word_drop:end - num_word_drop] = data[CONTEXT_IDXS_KEY][start:end]
 					context_char_idxs[start - num_word_drop:end - num_word_drop, :] \
 						= data[CONTEXT_CHAR_IDXS_KEY][start:end]
 					start_end_facts.append((start - num_word_drop, end - num_word_drop, is_sp_flag or is_gold))
+					orig_idxs[start - num_word_drop:end - num_word_drop] = np.arange(start, end)
 				else:
 					num_word_drop += (end - start)
-		if y1 < 0:
-			y_offset = 0
-		y1 = data[Y1_KEY] - y_offset
-		y2 = data[Y2_KEY] - y_offset
-		assert y1 < (context_idxs > 0).long().sum().item() and y2 < (context_idxs > 0).long().sum().item()
-		new_batch.append({
+		new_data = {
 			CONTEXT_IDXS_KEY: context_idxs,
 			CONTEXT_CHAR_IDXS_KEY: context_char_idxs,
 			QUES_IDXS_KEY: data[QUES_IDXS_KEY],
 			QUES_CHAR_IDXS_KEY: data[QUES_CHAR_IDXS_KEY],
-			Y1_KEY: y1,
-			Y2_KEY: y2,
-			Y_OFFSET_KEY: y_offset,
+			ORIG_IDXS: orig_idxs,
 			ID_KEY: data[ID_KEY],
 			START_END_FACTS_KEY: start_end_facts,
-		})
+		}
+		if not force_drop:
+			if y1 < 0:
+				y_offset = 0
+			y1 = data[Y1_KEY] - y_offset
+			y2 = data[Y2_KEY] - y_offset
+			assert y1 < (context_idxs > 0).long().sum().item() and y2 < (context_idxs > 0).long().sum().item()
+			new_data.update({
+				Y1_KEY: y1,
+				Y2_KEY: y2,
+			})
+		new_batch.append(new_data)
 	return new_batch
 
 
@@ -96,6 +102,7 @@ def build_ctx_tensor(batch, char_limit, cuda):
 	end_mapping = torch.zeros(bsz, max_c_len, max_sent_cnt)
 	all_mapping = torch.zeros(bsz, max_c_len, max_sent_cnt)
 	is_support = torch.LongTensor(bsz, max_sent_cnt).fill_(IGNORE_INDEX)
+	orig_idxs = np.zeros((bsz, max_c_len)).astype(int)
 	if cuda:
 		context_idxs = context_idxs.cuda()
 		context_char_idxs = context_char_idxs.cuda()
@@ -108,6 +115,7 @@ def build_ctx_tensor(batch, char_limit, cuda):
 		context_idxs[i].copy_(batch[i][CONTEXT_IDXS_KEY][:max_c_len])
 		context_char_idxs[i].copy_(batch[i][CONTEXT_CHAR_IDXS_KEY][:max_c_len])
 		context_lens[i] = (batch[i][CONTEXT_IDXS_KEY] > 0).long().sum()
+		orig_idxs[i] = np.copy(batch[i][ORIG_IDXS][:max_c_len])
 
 		for j, cur_sp_dp in enumerate(batch[i][START_END_FACTS_KEY]):
 			if len(cur_sp_dp) == 3:
@@ -118,17 +126,14 @@ def build_ctx_tensor(batch, char_limit, cuda):
 				start_mapping[i, start, j] = 1
 				end_mapping[i, end - 1, j] = 1
 				all_mapping[i, start:end, j] = 1
-				is_support[i, j] = int(
-					is_sp_flag or overlap_span(start, end, batch[i][Y1_KEY], batch[i][Y2_KEY]))
-	return context_idxs, context_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, is_support
-
+				is_support[i, j] = int(is_sp_flag)
+	return context_idxs, context_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, is_support, orig_idxs
 
 def build_ans_tensor(batch, cuda):
 	bsz = len(batch)
 	y1 = torch.LongTensor(bsz)
 	y2 = torch.LongTensor(bsz)
 	q_type = torch.LongTensor(bsz)
-	y_offsets = np.zeros(bsz, dtype=int)
 	for i in range(len(batch)):
 		if batch[i][Y1_KEY] >= 0:
 			y1[i] = batch[i][Y1_KEY]
@@ -148,12 +153,11 @@ def build_ans_tensor(batch, cuda):
 			q_type[i] = 3
 		else:
 			assert False
-		y_offsets[i] = batch[i][Y_OFFSET_KEY]
 	if cuda:
 		y1 = y1.cuda()
 		y2 = y2.cuda()
 		q_type = q_type.cuda()
-	return y1, y2, q_type, y_offsets
+	return y1, y2, q_type
 
 
 class DataIterator(object):
@@ -196,21 +200,22 @@ class DataIterator(object):
 
 			cur_batch = cur_bucket[start_id: start_id + cur_bsz]
 			# update support flag
-			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p if self.debug else 0.)
+			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit,
+			                        p=self.p if self.debug else 0., force_drop=False)
 			cur_batch.sort(key=lambda x: (x[CONTEXT_IDXS_KEY] > 0).long().sum(), reverse=True)
 			full_batch = cur_batch
 
 			ids = [data[ID_KEY] for data in cur_batch]
-			context_idxs, context_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, is_support = \
-				build_ctx_tensor(cur_batch, self.char_limit, not self.cpu)
-			ques_idxs, ques_char_idxs = build_ques_tensor(cur_batch, self.char_limit, not self.cpu)
-			y1, y2, _, y_offsets = build_ans_tensor(cur_batch, not self.cpu)
-
-			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p)
-
-			context_idxs_r, context_char_idxs_r, _, _, _, _, _ \
+			context_idxs, context_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, is_support, orig_idxs \
 				= build_ctx_tensor(cur_batch, self.char_limit, not self.cpu)
-			y1_r, y2_r, q_type, y_offsets_r = build_ans_tensor(cur_batch, not self.cpu)
+			ques_idxs, ques_char_idxs = build_ques_tensor(cur_batch, self.char_limit, not self.cpu)
+			y1, y2, _ = build_ans_tensor(cur_batch, not self.cpu)
+
+			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p, force_drop=False)
+
+			context_idxs_r, context_char_idxs_r, _, _, _, _, _, orig_idxs_r \
+				= build_ctx_tensor(cur_batch, self.char_limit, not self.cpu)
+			y1_r, y2_r, q_type = build_ans_tensor(cur_batch, not self.cpu)
 
 			self.bkt_ptrs[bkt_id] += cur_bsz
 			if self.bkt_ptrs[bkt_id] >= len(cur_bucket):
@@ -234,7 +239,7 @@ class DataIterator(object):
 				Y1_R_KEY: y1_r,
 				Y2_KEY: y2,
 				Y2_R_KEY: y2_r,
-				Y_OFFSETS_KEY: y_offsets,
-				Y_OFFSETS_R_KEY: y_offsets_r,
+				ORIG_IDXS: orig_idxs,
+				ORIG_IDXS_R: orig_idxs_r,
 				Q_TYPE_KEY: q_type,
 			}

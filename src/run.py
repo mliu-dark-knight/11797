@@ -46,7 +46,7 @@ def baseline_output(model, context_idxs, ques_idxs, context_char_idxs, ques_char
 
 def model_output(config, model, full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs,
                  context_char_idxs_r, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping,
-                 y_offsets, y_offsets_r, return_yp=False):
+                 orig_idxs, orig_idxs_r, return_yp=False):
 	predict_support = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs,
 	                        context_lens, start_mapping, end_mapping, stage='locate', return_yp=return_yp)
 	if return_yp:
@@ -61,15 +61,15 @@ def model_output(config, model, full_batch, context_idxs, context_idxs_r, ques_i
 			para_limit = context_idxs.size()[1]
 			char_limit = config.char_limit
 			cpu = config.cpu
-			cur_batch = sample_sent(full_batch, para_limit, char_limit, batch_p=batch_p)
+			cur_batch = sample_sent(full_batch, para_limit, char_limit, batch_p=batch_p, force_drop=True)
 
-			context_idxs_r, context_char_idxs_r, _, _, _, _, _ \
+			context_idxs_r, context_char_idxs_r, _, _, _, _, _, orig_idxs_r \
 				= build_ctx_tensor(cur_batch, char_limit, not cpu)
-			_, _, _, y_offsets_r = build_ans_tensor(cur_batch, not cpu)
 			_, _, predict_type, yp1, yp2 = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
 			                                     None, None, None, stage='reason', return_yp=True)
 		return logit1, logit2, predict_support, predict_type, \
-		       yp1.data.cpu().numpy() + y_offsets + y_offsets_r, yp2.data.cpu().numpy() + y_offsets + y_offsets_r
+		       orig_idxs[np.arange(len(yp1)), orig_idxs_r[np.arange(len(yp1)), yp1.data.cpu().numpy()]], \
+		       orig_idxs[np.arange(len(yp2)), orig_idxs_r[np.arange(len(yp2)), yp2.data.cpu().numpy()]]
 
 	logit1, logit2, predict_type = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
 	                                     None, None, None, stage='reason', return_yp=False)
@@ -90,15 +90,15 @@ def unpack(data):
 	y1_r = data[Y1_R_KEY]
 	y2 = data[Y2_KEY]
 	y2_r = data[Y2_R_KEY]
-	y_offsets = data[Y_OFFSETS_KEY]
-	y_offsets_r = data[Y_OFFSETS_R_KEY]
+	y_orig = data[ORIG_IDXS]
+	y_orig_r = data[ORIG_IDXS_R]
 	q_type = Variable(data[Q_TYPE_KEY])
 	is_support = Variable(data[IS_SUPPORT_KEY])
 	start_mapping = data[START_MAPPING_KEY]
 	end_mapping = data[END_MAPPING_KEY]
 	all_mapping = data[ALL_MAPPING_KEY]
 	return full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
-	       context_lens, y1, y1_r, y2, y2_r, y_offsets, y_offsets_r, q_type, is_support, \
+	       context_lens, y1, y1_r, y2, y2_r, y_orig, y_orig_r, q_type, is_support, \
 	       start_mapping, end_mapping, all_mapping
 
 
@@ -209,9 +209,9 @@ def train(config):
 
 				logging('-' * 89)
 				logging(
-					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | SP_F1 {:.4f}'.format(
+					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | SP_Precision {:.4f} | SP_Recall {:.4f} | SP_F1 {:.4f}'.format(
 						global_step // config.checkpoint, epoch, time.time() - eval_start_time,
-						metrics['loss'], metrics['exact_match'], metrics['f1'], metrics['sp_f1']))
+						metrics['loss'], metrics['exact_match'], metrics['f1'], metrics['sp_precision'], metrics['sp_recall'], metrics['sp_f1']))
 				logging('-' * 89)
 
 				eval_start_time = time.time()
@@ -234,18 +234,18 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		if step >= max_batches and max_batches > 0: break
 
 		full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
-		context_lens, y1, y1_r, y2, y2_r, y_offsets, y_offsets_r, q_type, is_support, \
+		context_lens, y1, y1_r, y2, y2_r, y_orig, y_orig_r, q_type, is_support, \
 		start_mapping, end_mapping, all_mapping = unpack(data)
 
 		if not config.baseline:
 			logit1, logit2, predict_support, predict_type, yp1, yp2 = model_output(
 				config, model, full_batch, context_idxs, context_idxs_r, ques_idxs,
 				context_char_idxs, context_char_idxs_r, ques_char_idxs, context_lens,
-				start_mapping, end_mapping, all_mapping, y_offsets, y_offsets_r, return_yp=True)
+				start_mapping, end_mapping, all_mapping, y_orig, y_orig_r, return_yp=True)
 		else:
 			logit1, logit2, predict_support, predict_type, yp1, yp2 = baseline_output(
 				model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
-				start_mapping, end_mapping, all_mapping, y_offsets, return_yp=True)
+				start_mapping, end_mapping, all_mapping, y_orig, return_yp=True)
 		if not config.baseline:
 			loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) + nll_sum(logit2, y2_r)) / context_idxs.size(
 				0) + \
@@ -270,7 +270,10 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	loss = total_loss / step_cnt
 	metrics = evaluate(eval_file, answer_dict)
 	metrics['loss'] = loss
-	metrics['sp_f1'] = evaluate_sp(sp_true, sp_pred)
+	sp_precision, sp_recall, sp_f1 = evaluate_sp(sp_true, sp_pred)
+	metrics['sp_precision'] = sp_precision
+	metrics['sp_recall'] = sp_recall
+	metrics['sp_f1'] = sp_f1
 	return metrics
 
 
@@ -281,12 +284,12 @@ def predict(data_source, model, eval_file, config, prediction_file):
 	sp_th = config.sp_threshold
 	for step, data in enumerate(tqdm(data_source)):
 		full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
-		context_lens, _, y1_r, _, y2_r, y_offsets, y_offsets_r, q_type, is_support, \
+		context_lens, _, y1_r, _, y2_r, y_orig, y_orig_r, q_type, is_support, \
 		start_mapping, end_mapping, all_mapping = unpack(data)
 
 		logit1, logit2, predict_support, predict_type, yp1, yp2 = model_output(
 			config, model, full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r,
-			ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, y_offsets, y_offsets_r,
+			ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, y_orig, y_orig_r,
 			return_yp=True)
 
 		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(predict_type.data.cpu().numpy(), 1))
