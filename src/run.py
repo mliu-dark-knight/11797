@@ -210,9 +210,9 @@ def train(config):
 
 				logging('-' * 89)
 				logging(
-					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | SP_Precision {:.4f} | SP_Recall {:.4f} | SP_F1 {:.4f}'.format(
+					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | SP_F1 {:.4f}'.format(
 						global_step // config.checkpoint, epoch, time.time() - eval_start_time,
-						metrics['loss'], metrics['exact_match'], metrics['f1'], metrics['sp_precision'], metrics['sp_recall'], metrics['sp_f1']))
+						metrics['loss'], metrics['exact_match'], metrics['f1'], metrics['sp_f1']))
 				logging('-' * 89)
 
 				eval_start_time = time.time()
@@ -271,10 +271,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	loss = total_loss / step_cnt
 	metrics = evaluate(eval_file, answer_dict)
 	metrics['loss'] = loss
-	sp_precision, sp_recall, sp_f1 = evaluate_sp(sp_true, sp_pred)
-	metrics['sp_precision'] = sp_precision
-	metrics['sp_recall'] = sp_recall
-	metrics['sp_f1'] = sp_f1
+	metrics['sp_f1'] = evaluate_sp(sp_true, sp_pred)
 	return metrics
 
 

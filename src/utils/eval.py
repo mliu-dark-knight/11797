@@ -111,6 +111,4 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
 
 
 def evaluate_sp(sp_true, sp_pred):
-    precision, recall, f1, _ = metrics.precision_recall_fscore_support(sp_true, sp_pred, average='micro')
-    return 100. * precision, 100. * recall, 100. * f1
-
+    return 100. * metrics.f1_score(sp_true, sp_pred)
