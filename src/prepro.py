@@ -118,6 +118,7 @@ def overlap_span(start, end, y1, y2):
 		return True
 	return y1 <= start and y2 >= end
 
+
 def fix_start_end_facts(start_end_facts, y1, y2):
 	assert y1[0] == y2[0]
 	fixed_start_end_facts = []
@@ -153,7 +154,8 @@ def _process_article(article):
 		sp_set = set()
 
 	for para in paragraphs:
-		text_context_para, context_tokens_para, offsets_para, flat_offsets_para, start_end_facts_para, sent2title_ids_para = _process_para(para, sp_set)
+		text_context_para, context_tokens_para, offsets_para, flat_offsets_para, start_end_facts_para, sent2title_ids_para = _process_para(
+			para, sp_set)
 		text_context.append(text_context_para)
 		context_tokens.append(context_tokens_para)
 		offsets.append(offsets_para)
@@ -173,7 +175,8 @@ def _process_article(article):
 				# use (0, 1) so that we can proceed
 				best_indices = ((-1, 0), (-1, 1))
 			else:
-				triples = [(para_id, *fix_span(text_context_para, offsets_para, answer)) for para_id, (text_context_para, offsets_para) in enumerate(zip(text_context, offsets))]
+				triples = [(para_id, *fix_span(text_context_para, offsets_para, answer)) for
+				           para_id, (text_context_para, offsets_para) in enumerate(zip(text_context, offsets))]
 				triples.sort(key=lambda e: e[3])
 				best_para, _, best_indices, _ = triples[0]
 				assert best_indices is not None
@@ -203,7 +206,7 @@ def process_file(filename):
 
 	eval_examples = {}
 
-	outputs = Parallel(n_jobs=12, verbose=10)(delayed(_process_article)(article, config) for article in data)
+	outputs = Parallel(n_jobs=12, verbose=10)(delayed(_process_article)(article) for article in data)
 	# outputs = [_process_article(article, config) for article in data]
 	outputs = [output for output in outputs if output is not None]
 	examples = [e[0] for e in outputs]
@@ -215,6 +218,7 @@ def process_file(filename):
 	print("{} questions in total".format(len(examples)))
 
 	return examples, eval_examples
+
 
 def convert_tokens_to_ids(tokens):
 	return [tokenizer.vocab[token] if token in tokenizer.vocab else tokenizer.vocab['[UNK]'] for token in tokens]
