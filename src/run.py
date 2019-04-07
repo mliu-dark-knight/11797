@@ -102,9 +102,9 @@ def unpack(data):
 	       start_mapping, end_mapping, all_mapping
 
 
-def build_iterator(config, buckets, batch_size, shuffle, num_word, num_char, p):
-	return DataIterator(buckets, batch_size, config.para_limit, config.ques_limit, config.char_limit,
-	                    shuffle, num_word, num_char, cpu=config.cpu, debug=config.debug, p=p)
+def build_iterator(config, buckets, batch_size, shuffle, p):
+	return DataIterator(buckets, batch_size, config.para_limit, config.ques_limit, shuffle,
+						cpu=config.cpu, debug=config.debug, p=p)
 
 
 def train(config):

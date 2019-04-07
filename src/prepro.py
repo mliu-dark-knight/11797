@@ -5,13 +5,11 @@ import spacy
 import torch
 import ujson as json
 from joblib import Parallel, delayed
-from pytorch_pretrained_bert import BertTokenizer
 from tqdm import tqdm
 
 from utils.constants import *
 
 nlp = spacy.blank("en")
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
 import bisect
 import re
@@ -178,7 +176,7 @@ def _process_article(article):
 				best_indices = ((-1, 0), (-1, 1))
 			else:
 				triples = [(para_id, *fix_span(text_context_para, offsets_para, answer)) for
-				           para_id, (text_context_para, offsets_para) in enumerate(zip(text_context, offsets))]
+						   para_id, (text_context_para, offsets_para) in enumerate(zip(text_context, offsets))]
 				triples.sort(key=lambda e: e[3])
 				best_para, _, best_indices, _ = triples[0]
 				assert best_indices is not None
@@ -196,10 +194,10 @@ def _process_article(article):
 	ques_tokens = word_tokenize(article['question'])
 
 	example = {'context_tokens': context_tokens, 'ques_tokens': ques_tokens,
-	           'y1s': [best_indices[0]], 'y2s': [best_indices[1]], 'id': article['_id'],
-	           'start_end_facts': start_end_facts}
+			   'y1s': [best_indices[0]], 'y2s': [best_indices[1]], 'id': article['_id'],
+			   'start_end_facts': start_end_facts}
 	eval_example = {'context': text_context, 'question': (article['question']), 'spans': flat_offsets,
-	                'answer': [answer], 'id': article['_id'], 'sent2title_ids': sent2title_ids}
+					'answer': [answer], 'id': article['_id'], 'sent2title_ids': sent2title_ids}
 	return example, eval_example
 
 

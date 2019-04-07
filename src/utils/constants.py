@@ -1,11 +1,12 @@
+from pytorch_pretrained_bert import BertTokenizer
+
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
+
 FULL_BATCH_KEY = 'full_batch'
-CONTEXT_IDXS_KEY = 'context_idxs'
-CONTEXT_IDXS_R_KEY = 'context_idxs_r'
-QUES_IDXS_KEY = 'ques_idxs'
-CONTEXT_CHAR_IDXS_KEY = 'context_char_idxs'
-CONTEXT_CHAR_IDXS_R_KEY = 'context_char_idxs_r'
-QUES_CHAR_IDXS_KEY = 'ques_char_idxs'
-CONTEXT_LENS_KEY = 'context_lens'
+CONTEXT_QUES_IDXS_KEY = 'context_ques_idxs'
+CONTEXT_QUES_MASKS_KEY = 'context_ques_masks'
+CONTEXT_QUES_SEGMENTS_KEY = 'context_ques_segments'
 ID_KEY = 'id'
 IDS_KEY = 'ids'
 IS_SUPPORT_KEY = 'is_support'
@@ -23,3 +24,7 @@ START_END_FACTS_KEY = 'start_end_facts'
 SEP = '[SEP]'
 CLS = '[CLS]'
 UNK = '[UNK]'
+SEP_IDX = tokenizer.vocab[SEP]
+CLS_IDX = tokenizer.vocab[CLS]
+UNK_IDX = tokenizer.vocab[UNK]
+MAX_SEQ_LEN = 512
