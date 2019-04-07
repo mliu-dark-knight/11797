@@ -5,7 +5,7 @@ import torch
 import ujson as json
 from joblib import Parallel, delayed
 from tqdm import tqdm
-
+import os
 from utils.constants import *
 
 nlp = spacy.blank("en")
@@ -193,9 +193,9 @@ def _process_article(article):
 	ques_tokens = word_tokenize(article['question'])
 
 	example = {'context_tokens': context_tokens, 'ques_tokens': ques_tokens,
-			   'y1s': [best_indices[0]], 'y2s': [best_indices[1]], 'id': article['_id'],
+			   'y1': best_indices[0], 'y2': best_indices[1], 'id': article['_id'],
 			   'start_end_facts': start_end_facts}
-	eval_example = {'context': text_context, 'question': (article['question']), 'spans': flat_offsets,
+	eval_example = {'context': text_context, 'question': article['question'], 'spans': flat_offsets,
 					'answer': [answer], 'id': article['_id'], 'sent2title_ids': sent2title_ids}
 	return example, eval_example
 
@@ -225,9 +225,12 @@ def convert_tokens_to_ids(tokens):
 
 def build_features(examples, data_type, out_file):
 	def filter_func(example):
-		for para in example['context_tokens']:
-			if 3 + len(para) + len(example["ques_tokens"]) > MAX_SEQ_LEN:
-				return True
+		if example['y1'][1] >= PARA_LIMIT or example['y2'][1] >= PARA_LIMIT:
+			return True
+		if example['y2'][1] - example['y1'][1] + 1 > ANS_LIMIT:
+			return True
+		if len(example['ques_tokens']) > QUES_LIMIT:
+			return True
 		return False
 
 	print("Processing {} examples...".format(data_type))
@@ -240,10 +243,10 @@ def build_features(examples, data_type, out_file):
 		if filter_func(example):
 			continue
 		total += 1
-		context_idxs = [torch.tensor(convert_tokens_to_ids(para)) for para in example['context_tokens']]
+		context_idxs = [torch.tensor(convert_tokens_to_ids(para[:PARA_LIMIT])) for para in example['context_tokens']]
 		ques_idxs = torch.tensor(convert_tokens_to_ids(example['ques_tokens']))
 
-		start, end = example["y1s"][-1], example["y2s"][-1]
+		start, end = example["y1"][1], example["y2"][1]
 		y1, y2 = start, end
 		max_answer_len = max(max_answer_len, y2[1] + 1 - y1[1])
 
@@ -272,8 +275,6 @@ def save(filename, obj, message=None):
 def prepro(config):
 	random.seed(13)
 
-	examples, eval_examples = process_file(config.data_file)
-
 	if config.data_split == 'train':
 		record_file = config.train_record_file
 		eval_file = config.train_eval_file
@@ -283,6 +284,16 @@ def prepro(config):
 	elif config.data_split == 'test':
 		record_file = config.test_record_file
 		eval_file = config.test_eval_file
+
+	tmp_record_file = os.path.join(os.path.dirname(record_file), 'tmp_' + os.path.basename(record_file))
+	tmp_eval_file = os.path.join(os.path.dirname(eval_file), 'tmp_' + os.path.basename(eval_file))
+	if os.path.isfile(tmp_record_file) and os.path.isfile(tmp_eval_file):
+		examples = torch.load(tmp_record_file)
+		eval_examples = torch.load(tmp_eval_file)
+	else:
+		examples, eval_examples = process_file(config.data_file)
+		torch.save(examples, record_file)
+		torch.save(eval_examples, eval_file)
 
 	build_features(examples, config.data_split, record_file)
 	save(eval_file, eval_examples, message='{} eval'.format(config.data_split))
