@@ -246,9 +246,9 @@ def build_features(examples, data_type, out_file):
 		context_idxs = [torch.tensor(convert_tokens_to_ids(para[:PARA_LIMIT])) for para in example['context_tokens']]
 		ques_idxs = torch.tensor(convert_tokens_to_ids(example['ques_tokens']))
 
-		start, end = example["y1"][1], example["y2"][1]
+		start, end = example["y1"], example["y2"]
 		y1, y2 = start, end
-		max_answer_len = max(max_answer_len, y2 + 1 - y1)
+		max_answer_len = max(max_answer_len, y2[1] + 1 - y1[1])
 
 		datapoints.append({
 			'context_tokens': example['context_tokens'],
