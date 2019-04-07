@@ -3,6 +3,7 @@ import os
 import shutil
 import time
 
+import numpy as np
 import ujson as json
 from torch import optim, nn
 from torch.autograd import Variable
@@ -13,7 +14,6 @@ from utils.iterator import *
 
 nll_sum = nn.CrossEntropyLoss(size_average=False, ignore_index=IGNORE_INDEX)
 nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
-nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 
 
 def create_exp_dir(path, scripts_to_save=None):
@@ -28,20 +28,6 @@ def create_exp_dir(path, scripts_to_save=None):
 			dst_file = os.path.join(path, 'scripts', os.path.basename(script))
 			shutil.copyfile(script, dst_file)
 
-
-def baseline_output(model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
-                    start_mapping, end_mapping, all_mapping, orig_idxs, return_yp=False):
-	if return_yp:
-		logit1, logit2, predict_type, predict_support, yp1, yp2 \
-			= model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
-			        start_mapping, end_mapping, all_mapping, return_yp=True)
-		return logit1, logit2, predict_support, predict_type, \
-		       orig_idxs[np.arange(len(yp1)), yp1.data.cpu().numpy()], \
-		       orig_idxs[np.arange(len(yp1)), yp2.data.cpu().numpy()]
-	logit1, logit2, predict_type, predict_support \
-		= model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
-		        start_mapping, end_mapping, all_mapping, return_yp=False)
-	return logit1, logit2, predict_support, predict_type
 
 
 def model_output(config, model, full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs,
@@ -79,32 +65,19 @@ def model_output(config, model, full_batch, context_idxs, context_idxs_r, ques_i
 
 def unpack(data):
 	full_batch = data[FULL_BATCH_KEY]
-	context_idxs = data[CONTEXT_IDXS_KEY]
-	context_idxs_r = data[CONTEXT_IDXS_R_KEY]
-	ques_idxs = data[QUES_IDXS_KEY]
-	context_char_idxs = data[CONTEXT_CHAR_IDXS_KEY]
-	context_char_idxs_r = data[CONTEXT_CHAR_IDXS_R_KEY]
-	ques_char_idxs = data[QUES_CHAR_IDXS_KEY]
-	context_lens = data[CONTEXT_LENS_KEY]
-	y1 = data[Y1_KEY]
-	y1_r = data[Y1_R_KEY]
-	y2 = data[Y2_KEY]
-	y2_r = data[Y2_R_KEY]
-	orig_idxs = data[ORIG_IDXS]
-	orig_idxs_r = data[ORIG_IDXS_R]
+	context_ques_idxs = data[CONTEXT_QUES_IDXS_KEY]
+	context_ques_masks = data[CONTEXT_QUES_MASKS_KEY]
+	context_ques_segments = data[CONTEXT_QUES_SEGMENTS_KEY]
 	q_type = Variable(data[Q_TYPE_KEY])
-	is_support = Variable(data[IS_SUPPORT_KEY])
-	start_mapping = data[START_MAPPING_KEY]
-	end_mapping = data[END_MAPPING_KEY]
-	all_mapping = data[ALL_MAPPING_KEY]
-	return full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
-	       context_lens, y1, y1_r, y2, y2_r, orig_idxs, orig_idxs_r, q_type, is_support, \
-	       start_mapping, end_mapping, all_mapping
+	y1 = data[Y1_KEY]
+	y2 = data[Y2_KEY]
+	y1_flat = data[Y1_FLAT_KEY]
+	y2_flat = data[Y2_FLAT_KEY]
+	return full_batch, context_ques_idxs, context_ques_masks, context_ques_segments, q_type, y1, y2, y1_flat, y2_flat
 
 
-def build_iterator(config, buckets, batch_size, shuffle, p):
-	return DataIterator(buckets, batch_size, config.para_limit, config.ques_limit, shuffle,
-						cpu=config.cpu, debug=config.debug, p=p)
+def build_iterator(config, bucket, batch_size, shuffle):
+	return DataIterator(bucket, batch_size, shuffle, debug=config.debug)
 
 
 def train(config):
@@ -131,8 +104,8 @@ def train(config):
 		logging('    - {} : {}'.format(k, v))
 
 	logging("Building model...")
-	train_buckets = get_buckets(config.train_record_file)
-	dev_buckets = get_buckets(config.dev_record_file)
+	train_datapoints = get_datapoitns(config.train_record_file)
+	dev_datapoints = get_datapoitns(config.dev_record_file)
 
 	model = HOPModel(config)
 
@@ -151,34 +124,16 @@ def train(config):
 	model.train()
 
 	for epoch in range(config.epoch):
-		for data in build_iterator(config, train_buckets, config.batch_size, not config.debug, config.p):
-			_, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
-			context_lens, y1, y1_r, y2, y2_r, _, _, q_type, is_support, start_mapping, end_mapping, all_mapping \
-				= unpack(data)
+		for data in build_iterator(config, train_datapoints, config.batch_size, not config.debug):
+			_, context_ques_idxs, context_ques_masks, context_ques_segments, q_type, y1, y2, y1_flat, y2_flat = unpack(data)
 
-			if not config.baseline:
-				logit1, logit2, predict_support, predict_type = model_output(
-					config, model, None, context_idxs, context_idxs_r, ques_idxs,
-					context_char_idxs, context_char_idxs_r, ques_char_idxs, context_lens,
-					start_mapping, end_mapping, all_mapping, None, None, return_yp=False)
-			else:
-				logit1, logit2, predict_support, predict_type = baseline_output(
-					model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
-					start_mapping, end_mapping, all_mapping, None, return_yp=False)
-			if not config.baseline:
-				loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) +
-				          nll_sum(logit2, y2_r)) / context_idxs.size(0)
-			else:
-				loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) +
-				          nll_sum(logit2, y2)) / context_idxs.size(0)
-			loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
-			loss = loss_1 + config.sp_lambda * loss_2
+			start_logits, end_logits, type_logits = model(context_ques_idxs, context_ques_masks, context_ques_segments)
+			loss = nll_average(start_logits, y1_flat) + nll_average(end_logits, y2_flat) + nll_average(type_logits, q_type)
 
 			optimizer.zero_grad()
 			loss.backward()
 			optimizer.step()
 
-			total_loss += loss.item()
 			global_step += 1
 
 			if global_step % config.period == 0:
@@ -186,14 +141,12 @@ def train(config):
 				elapsed = time.time() - start_time
 				logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f}'.format(
 					epoch, global_step, lr, elapsed * 1000 / config.period, cur_loss))
-				total_loss = 0
 				start_time = time.time()
 
 			if global_step % config.checkpoint == 0:
 				model.eval()
 				metrics = evaluate_batch(
-					build_iterator(config, dev_buckets, math.ceil(config.batch_size / 2), False, len(word_mat),
-					               len(char_mat), config.p),
+					build_iterator(config, dev_datapoints, math.ceil(config.batch_size), False),
 					model, 1 if config.debug else 0, dev_eval_file, config)
 				model.train()
 
@@ -223,26 +176,8 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	for step, data in enumerate(iter):
 		if step >= max_batches and max_batches > 0: break
 
-		full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
-		context_lens, y1, y1_r, y2, y2_r, orig_idxs, orig_idxs_r, q_type, is_support, \
-		start_mapping, end_mapping, all_mapping = unpack(data)
+		_, context_ques_idxs, context_ques_masks, context_ques_segments, q_type, y1, y2, y1_flat, y2_flat = unpack(data)
 
-		if not config.baseline:
-			logit1, logit2, predict_support, predict_type, yp1, yp2 = model_output(
-				config, model, full_batch, context_idxs, context_idxs_r, ques_idxs,
-				context_char_idxs, context_char_idxs_r, ques_char_idxs, context_lens,
-				start_mapping, end_mapping, all_mapping, orig_idxs, orig_idxs_r, return_yp=True)
-		else:
-			logit1, logit2, predict_support, predict_type, yp1, yp2 = baseline_output(
-				model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
-				start_mapping, end_mapping, all_mapping, orig_idxs, return_yp=True)
-		if not config.baseline:
-			loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) + nll_sum(logit2, y2_r)) / context_idxs.size(
-				0) + \
-			       config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
-		else:
-			loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) + \
-			       config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
 
 		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(predict_type.data.cpu().numpy(), 1))
 		answer_dict.update(answer_dict_)
@@ -262,71 +197,3 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	metrics['loss'] = loss
 	metrics['sp_f1'] = evaluate_sp(sp_true, sp_pred)
 	return metrics
-
-
-@torch.no_grad()
-def predict(data_source, model, eval_file, config, prediction_file):
-	answer_dict = {}
-	sp_dict = {}
-	sp_th = config.sp_threshold
-	for step, data in enumerate(tqdm(data_source)):
-		full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
-		context_lens, _, y1_r, _, y2_r, orig_idxs, orig_idxs_r, q_type, is_support, \
-		start_mapping, end_mapping, all_mapping = unpack(data)
-
-		logit1, logit2, predict_support, predict_type, yp1, yp2 = model_output(
-			config, model, full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r,
-			ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, orig_idxs, orig_idxs_r,
-			return_yp=True)
-
-		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(predict_type.data.cpu().numpy(), 1))
-		answer_dict.update(answer_dict_)
-
-		predict_support_np = torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy()
-		for i in range(predict_support_np.shape[0]):
-			cur_sp_pred = []
-			cur_id = data['ids'][i]
-			for j in range(predict_support_np.shape[1]):
-				if j >= len(eval_file[cur_id]['sent2title_ids']): break
-				if predict_support_np[i, j] > sp_th:
-					cur_sp_pred.append(eval_file[cur_id]['sent2title_ids'][j])
-			sp_dict.update({cur_id: cur_sp_pred})
-
-	prediction = {'answer': answer_dict, 'sp': sp_dict}
-	with open(prediction_file, 'w') as f:
-		json.dump(prediction, f)
-
-
-def test(config):
-	with open(config.word_emb_file, "r") as fh:
-		word_mat = np.array(json.load(fh), dtype=np.float32)
-	with open(config.char_emb_file, "r") as fh:
-		char_mat = np.array(json.load(fh), dtype=np.float32)
-	if config.data_split == 'dev':
-		with open(config.dev_eval_file, "r") as fh:
-			dev_eval_file = json.load(fh)
-	else:
-		with open(config.test_eval_file, 'r') as fh:
-			dev_eval_file = json.load(fh)
-	with open(config.idx2word_file, 'r') as fh:
-		idx2word_dict = json.load(fh)
-
-	random.seed(config.seed)
-	np.random.seed(config.seed)
-	torch.manual_seed(config.seed)
-	torch.cuda.manual_seed_all(config.seed)
-
-	if config.data_split == 'dev':
-		dev_buckets = get_buckets(config.dev_record_file)
-	elif config.data_split == 'test':
-		dev_buckets = get_buckets(config.test_record_file)
-
-	model = HOPModel(config, word_mat, char_mat)
-	ori_model = model if config.cpu else model.cuda()
-	ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
-	model = nn.DataParallel(ori_model)
-
-	model.eval()
-	predict(
-		build_iterator(config, math.ceil(config.batch_size / 2), dev_buckets, False, len(word_mat), len(char_mat), 0.0),
-		model, dev_eval_file, config, config.prediction_file)

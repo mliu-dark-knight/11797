@@ -2,6 +2,7 @@ from pytorch_pretrained_bert import BertTokenizer
 
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
+BIG_INT = 1e4
 IGNORE_INDEX = -1
 FULL_BATCH_KEY = 'full_batch'
 CONTEXT_QUES_IDXS_KEY = 'context_ques_idxs'

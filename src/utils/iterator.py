@@ -12,11 +12,11 @@ def build_tensor(batch, cuda):
 		max_para_cnt = max(max_para_cnt, len(data['context_idxs']))
 		for para in zip(data['context_idxs']):
 			max_ctx_ques_size = max(max_ctx_ques_size, len(para) + len(data['ques_idxs'] + 3))
-
-	context_ques_idxs = torch.LongTensor((bsz, max_para_cnt, max_ctx_ques_size)).fill_(UNK_IDX)
-	context_ques_masks = torch.LongTensor((bsz, max_para_cnt, max_ctx_ques_size)).fill_(0)
-	context_ques_segments = torch.LongTensor((bsz, max_para_cnt, max_ctx_ques_size)).fill_(1)
-	y1 = torch.LongTensor((bsz, 2))
+	assert max_ctx_ques_size <= MAX_SEQ_LEN
+	context_ques_idxs = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(UNK_IDX)
+	context_ques_masks = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(0)
+	context_ques_segments = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(1)
+	y1 = torch.LongTensor(bsz, 2)
 	y2 = torch.LongTensor(bsz)
 	y1_flat = torch.LongTensor(bsz)
 	y2_flat = torch.LongTensor(bsz)
@@ -29,9 +29,8 @@ def build_tensor(batch, cuda):
 		context_ques_segments[data_i, :, : 2 + len(data['ques_idxs'])] = 0
 		for para_i, para in enumerate(data['context_idxs']):
 			context_ques_idxs[data_i, para_i, 2 + len(data['ques_idxs']): 3 + len(data['ques_idxs']) + len(para)] = para
+			context_ques_idxs[data_i, :, 3 + len(data['ques_idxs']) + len(para): 4 + len(data['ques_idxs']) + len(para)] = SEP_IDX
 			context_ques_masks[data_i, para_i, : 4 + len(data['ques_idxs']) + len(para)] = 1
-		context_ques_idxs[data_i, :,
-		3 + len(data['ques_idxs']) + len(para): 4 + len(data['ques_idxs']) + len(para)] = SEP_IDX
 
 		if batch[data_i][Y1_KEY][1] >= 0:
 			# TODO: set y1, y2
@@ -69,12 +68,12 @@ def build_tensor(batch, cuda):
 
 
 class DataIterator(object):
-	def __init__(self, bucket, bsz, shuffle, debug=False):
-		self.bucket = bucket
+	def __init__(self, datapoints, bsz, shuffle, debug=False):
+		self.datapoints = datapoints
 		self.bsz = bsz
 
 		if shuffle:
-			random.shuffle(self.bucket)
+			random.shuffle(self.datapoints)
 		self.bkt_ptr = 0
 		self.shuffle = shuffle
 		self.debug = debug
@@ -82,15 +81,15 @@ class DataIterator(object):
 	def __iter__(self):
 		while True:
 			start_id = self.bkt_ptr
-			cur_bsz = min(self.bsz, len(self.bucket) - start_id)
+			cur_bsz = min(self.bsz, len(self.datapoints) - start_id)
 
-			cur_batch = self.bucket[start_id: start_id + cur_bsz]
+			cur_batch = self.datapoints[start_id: start_id + cur_bsz]
 
 			ids = [data[ID_KEY] for data in cur_batch]
 			context_ques_idxs, context_ques_masks, context_ques_segments, q_type, y1, y2, y1_flat, y2_flat = build_tensor(cur_batch, not self.debug)
 
 			self.bkt_ptr += cur_bsz
-			if self.bkt_ptr >= len(self.bucket):
+			if self.bkt_ptr >= len(self.datapoints):
 				break
 
 			yield {

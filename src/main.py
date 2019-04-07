@@ -2,7 +2,7 @@ import argparse
 import os
 
 from prepro import prepro
-from run import train, test
+from run import train
 
 parser = argparse.ArgumentParser()
 
@@ -79,14 +79,11 @@ if config.debug:
     config.batch_size = 4
     config.checkpoint = 1
     config.period = 1
-    config.train_record_file = config.dev_record_file
-    config.train_eval_file = config.dev_eval_file
 
 if __name__ == '__main__':
     if config.mode == 'train':
         train(config)
     elif config.mode == 'prepro':
         prepro(config)
-    elif config.mode == 'test':
-        assert not config.baseline
-        test(config)
+    # elif config.mode == 'test':
+    #     test(config)

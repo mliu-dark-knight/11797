@@ -1,6 +1,5 @@
 import random
 
-import numpy as np
 import spacy
 import torch
 import ujson as json
@@ -237,8 +236,8 @@ def build_features(examples, data_type, out_file):
 		if filter_func(example):
 			continue
 		total += 1
-		context_idxs = [np.array(convert_tokens_to_ids(para)) for para in example['context_tokens']]
-		ques_idxs = np.array(convert_tokens_to_ids(example['ques_tokens']))
+		context_idxs = [torch.tensor(convert_tokens_to_ids(para)) for para in example['context_tokens']]
+		ques_idxs = torch.tensor(convert_tokens_to_ids(example['ques_tokens']))
 
 		start, end = example["y1s"][-1], example["y2s"][-1]
 		y1, y2 = start, end

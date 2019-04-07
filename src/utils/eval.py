@@ -14,10 +14,8 @@ def prepro(token):
     return token if not has_digit(token) else 'N'
 
 
-def get_buckets(record_file):
-    # datapoints = pickle.load(open(record_file, 'rb'))
-    datapoints = torch.load(record_file)
-    return [datapoints]
+def get_datapoitns(record_file):
+    return torch.load(record_file)
 
 def convert_tokens(eval_file, qa_id, pp1, pp2, p_type):
     answer_dict = {}
