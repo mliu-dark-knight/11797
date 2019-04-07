@@ -1,3 +1,4 @@
+import os
 import random
 
 import spacy
@@ -5,7 +6,7 @@ import torch
 import ujson as json
 from joblib import Parallel, delayed
 from tqdm import tqdm
-import os
+
 from utils.constants import *
 
 nlp = spacy.blank("en")
@@ -84,6 +85,13 @@ def _process_para(para, sp_set):
 	sent2title_ids = []
 
 	def _process(sent, is_sup_fact, N_chars, is_title=False):
+		'''
+		:param sent:
+		:param is_sup_fact:
+		:param N_chars:
+		:param is_title:
+		:return: continue to next sentence or not
+		'''
 		nonlocal text_context, context_tokens, offsets, start_end_facts, flat_offsets
 
 		sent_tokens = word_tokenize(sent)
@@ -94,19 +102,23 @@ def _process_para(para, sp_set):
 
 		sent_spans = [[N_chars + e[0], N_chars + e[1]] for e in sent_spans]
 		N_tokens, my_N_tokens = len(context_tokens), len(sent_tokens)
+		if N_tokens + my_N_tokens > PARA_LIMIT:
+			return False
 
 		text_context += sent
 		context_tokens.extend(sent_tokens)
 		start_end_facts.append((N_tokens, N_tokens + my_N_tokens, is_sup_fact))
 		offsets.append(sent_spans)
 		flat_offsets.extend(sent_spans)
+		return True
 
 	cur_title, cur_para = para[0], para[1]
 	_process(cur_title, False, len(text_context), is_title=True)
 	sent2title_ids.append((cur_title, -1))
 	for sent_id, sent in enumerate(cur_para):
 		is_sup_fact = (cur_title, sent_id) in sp_set
-		_process(sent, is_sup_fact, len(text_context))
+		if not _process(sent, is_sup_fact, len(text_context)):
+			break
 		sent2title_ids.append((cur_title, sent_id))
 
 	return text_context, context_tokens, offsets, flat_offsets, start_end_facts, sent2title_ids
@@ -155,6 +167,7 @@ def _process_article(article):
 	for para in paragraphs:
 		text_context_para, context_tokens_para, offsets_para, flat_offsets_para, start_end_facts_para, sent2title_ids_para = _process_para(
 			para, sp_set)
+		assert len(context_tokens_para) <= PARA_LIMIT
 		text_context.append(text_context_para)
 		context_tokens.append(context_tokens_para)
 		offsets.append(offsets_para)
@@ -206,7 +219,7 @@ def process_file(filename):
 	eval_examples = {}
 
 	outputs = Parallel(n_jobs=32, verbose=10)(delayed(_process_article)(article) for article in data)
-	# outputs = [_process_article(article, config) for article in data]
+	# outputs = [_process_article(article) for article in data]
 	outputs = [output for output in outputs if output is not None]
 	examples = [e[0] for e in outputs]
 	for _, e in outputs:
@@ -225,8 +238,6 @@ def convert_tokens_to_ids(tokens):
 
 def build_features(examples, data_type, out_file):
 	def filter_func(example):
-		if example['y1'][1] >= PARA_LIMIT or example['y2'][1] >= PARA_LIMIT:
-			return True
 		if example['y2'][1] - example['y1'][1] + 1 > ANS_LIMIT:
 			return True
 		if len(example['ques_tokens']) > QUES_LIMIT:

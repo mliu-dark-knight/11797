@@ -20,7 +20,7 @@ class HOPModel(nn.Module):
 
 	def get_output_mask(self, outer):
 		S = outer.size(1)
-		np_mask = np.tril(np.triu(np.ones((S, S)), 0), 15)
+		np_mask = np.tril(np.triu(np.ones((S, S)), 0), ANS_LIMIT - 1)
 		cache_mask = outer.data.new(S, S).copy_(torch.from_numpy(np_mask))
 		return Variable(cache_mask, requires_grad=False)
 

@@ -1,8 +1,9 @@
 import random
 
+import numpy as np
+
 from utils.constants import *
 from utils.eval import *
-import numpy as np
 
 
 def build_tensor(batch, cuda):
@@ -11,9 +12,10 @@ def build_tensor(batch, cuda):
 	max_para_cnt = 0
 	for data in batch:
 		max_para_cnt = max(max_para_cnt, len(data['context_idxs']))
+		# assert len(data['ques_idxs']) <= QUES_LIMIT
 		for para in data['context_idxs']:
+			# assert len(para) <= PARA_LIMIT
 			max_ctx_ques_size = max(max_ctx_ques_size, 3 + len(para) + len(data['ques_idxs']))
-	assert max_ctx_ques_size <= MAX_SEQ_LEN
 	context_ques_idxs = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(UNK_IDX)
 	context_ques_masks = torch.FloatTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(0.)
 	context_ques_segments = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(1)
