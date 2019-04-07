@@ -226,7 +226,7 @@ def convert_tokens_to_ids(tokens):
 def build_features(examples, data_type, out_file):
 	def filter_func(example):
 		for para in example['context_tokens']:
-			if 3 * len(para) + len(example["ques_tokens"]) > MAX_SEQ_LEN:
+			if 3 + len(para) + len(example["ques_tokens"]) > MAX_SEQ_LEN:
 				return True
 		return False
 
