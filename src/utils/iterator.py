@@ -161,8 +161,7 @@ def build_ans_tensor(batch, cuda):
 
 
 class DataIterator(object):
-	def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, num_word, num_char,
-	             cpu=False, debug=False, p=0.0):
+	def __init__(self, buckets, bsz, para_limit, ques_limit, shuffle, cpu=False, debug=False, p=0.0):
 		self.buckets = buckets
 		self.bsz = bsz
 		if para_limit is not None and ques_limit is not None:
@@ -175,9 +174,6 @@ class DataIterator(object):
 					para_limit = max(para_limit, dp[CONTEXT_IDXS_KEY].size(0))
 					ques_limit = max(ques_limit, dp[QUES_IDXS_KEY].size(0))
 			self.para_limit, self.ques_limit = para_limit, ques_limit
-		self.char_limit = char_limit
-		self.num_word = num_word
-		self.num_char = num_char
 
 		self.num_buckets = len(self.buckets)
 		self.bkt_pool = [i for i in range(self.num_buckets) if len(self.buckets[i]) > 0]

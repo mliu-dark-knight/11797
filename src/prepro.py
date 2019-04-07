@@ -8,6 +8,8 @@ from joblib import Parallel, delayed
 from pytorch_pretrained_bert import BertTokenizer
 from tqdm import tqdm
 
+from utils.constants import *
+
 nlp = spacy.blank("en")
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
@@ -221,7 +223,7 @@ def process_file(filename):
 
 
 def convert_tokens_to_ids(tokens):
-	return [tokenizer.vocab[token] if token in tokenizer.vocab else tokenizer.vocab['[UNK]'] for token in tokens]
+	return [tokenizer.vocab[token] if token in tokenizer.vocab else tokenizer.vocab[UNK] for token in tokens]
 
 
 def build_features(examples, data_type, out_file):

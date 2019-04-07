@@ -1,6 +1,7 @@
 import numpy as np
 
 from model.common import *
+from pytorch_pretrained_bert import BertModel
 
 
 class Memory(nn.Module):
@@ -23,28 +24,12 @@ class Memory(nn.Module):
 
 
 class HOPModel(nn.Module):
-	def __init__(self, config, word_mat, char_mat):
+	def __init__(self, config):
 		super().__init__()
 		self.config = config
-		self.word_dim = config.glove_dim
-		self.word_emb = nn.Embedding(len(word_mat), len(word_mat[0]), padding_idx=0)
-		self.word_emb.weight.data.copy_(torch.from_numpy(word_mat))
-		self.word_emb.weight.requires_grad = False
-		self.char_emb = nn.Embedding(len(char_mat), len(char_mat[0]), padding_idx=0)
-		self.char_emb.weight.data.copy_(torch.from_numpy(char_mat))
-
-		self.char_cnn = nn.Conv1d(config.char_dim, config.char_hidden, 5)
-		self.char_hidden = config.char_hidden
 		self.hidden = config.hidden
 
-		self.rnn = EncoderRNN(config.char_hidden + self.word_dim, config.hidden, 1, True, True, 1 - config.keep_prob,
-		                      False)
-
-		self.qc_att = BiAttention(config.hidden * 2, 1 - config.keep_prob)
-		self.linear_1 = nn.Sequential(
-			nn.Linear(config.hidden * 8, config.hidden),
-			nn.ReLU()
-		)
+		self.bert = BertModel.from_pretrained('bert-base-uncased')
 
 		self.memory = Memory(config)
 
@@ -71,29 +56,17 @@ class HOPModel(nn.Module):
 		self.cache_mask = outer.data.new(S, S).copy_(torch.from_numpy(np_mask))
 		return Variable(self.cache_mask, requires_grad=False)
 
-	def forward(self, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping,
-	            end_mapping, stage='locate', return_yp=False):
-		para_size, ques_size, char_size, bsz = context_idxs.size(1), ques_idxs.size(1), context_char_idxs.size(
-			2), context_idxs.size(0)
+	def forward(self, context_ques_idxs, segment_idxs, start_mapping, end_mapping, stage='locate', return_yp=False):
+		para_size, bsz = context_ques_idxs.size(1), context_ques_idxs.size(0)
+		bert_output = self.bert(context_ques_idxs, segment_idxs)
 
 		context_mask = (context_idxs > 0).float()
-		ques_mask = (ques_idxs > 0).float()
-
-		context_ch = self.char_emb(context_char_idxs.contiguous().view(-1, char_size)).view(bsz * para_size, char_size,
-		                                                                                    -1)
-		ques_ch = self.char_emb(ques_char_idxs.contiguous().view(-1, char_size)).view(bsz * ques_size, char_size, -1)
-
-		context_ch = self.char_cnn(context_ch.permute(0, 2, 1).contiguous()).max(dim=-1)[0].view(bsz, para_size, -1)
-		ques_ch = self.char_cnn(ques_ch.permute(0, 2, 1).contiguous()).max(dim=-1)[0].view(bsz, ques_size, -1)
 
 		context_word = self.word_emb(context_idxs)
-		ques_word = self.word_emb(ques_idxs)
 
 		context_output = torch.cat((context_word, context_ch), dim=2)
-		ques_output = torch.cat((ques_word, ques_ch), dim=2)
 
 		context_output = self.rnn(context_output, context_lens)
-		ques_output = self.rnn(ques_output)
 
 		output = self.qc_att(context_output, ques_output, ques_mask)
 		output = self.linear_1(output)

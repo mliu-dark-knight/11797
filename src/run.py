@@ -2,14 +2,13 @@ import math
 import os
 import shutil
 import time
-import ujson as json
 
+import ujson as json
 from torch import optim, nn
 from torch.autograd import Variable
 from tqdm import tqdm
 
 from model.hop_model import HOPModel
-from model.sp_model import SPModel
 from utils.iterator import *
 
 nll_sum = nn.CrossEntropyLoss(size_average=False, ignore_index=IGNORE_INDEX)
@@ -109,17 +108,8 @@ def build_iterator(config, buckets, batch_size, shuffle, num_word, num_char, p):
 
 
 def train(config):
-	if config.debug:
-		word_mat = np.random.rand(395261, 300)
-	else:
-		with open(config.word_emb_file, "r") as fh:
-			word_mat = np.array(json.load(fh), dtype=np.float32)
-	with open(config.char_emb_file, "r") as fh:
-		char_mat = np.array(json.load(fh), dtype=np.float32)
 	with open(config.dev_eval_file, "r") as fh:
 		dev_eval_file = json.load(fh)
-	with open(config.idx2word_file, 'r') as fh:
-		idx2word_dict = json.load(fh)
 
 	random.seed(config.seed)
 	np.random.seed(config.seed)
@@ -144,7 +134,7 @@ def train(config):
 	train_buckets = get_buckets(config.train_record_file)
 	dev_buckets = get_buckets(config.dev_record_file)
 
-	model = HOPModel(config, word_mat, char_mat) if not config.baseline else SPModel(config, word_mat, char_mat)
+	model = HOPModel(config)
 
 	logging('nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
 	ori_model = model if config.cpu else model.cuda()
@@ -161,8 +151,7 @@ def train(config):
 	model.train()
 
 	for epoch in range(config.epoch):
-		for data in build_iterator(config, train_buckets, config.batch_size, not config.debug, len(word_mat),
-		                           len(char_mat), config.p):
+		for data in build_iterator(config, train_buckets, config.batch_size, not config.debug, config.p):
 			_, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
 			context_lens, y1, y1_r, y2, y2_r, _, _, q_type, is_support, start_mapping, end_mapping, all_mapping \
 				= unpack(data)
