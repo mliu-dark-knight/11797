@@ -2,6 +2,7 @@ import random
 
 from utils.constants import *
 from utils.eval import *
+import numpy as np
 
 
 def build_tensor(batch, cuda):
@@ -10,14 +11,14 @@ def build_tensor(batch, cuda):
 	max_para_cnt = 0
 	for data in batch:
 		max_para_cnt = max(max_para_cnt, len(data['context_idxs']))
-		for para in zip(data['context_idxs']):
-			max_ctx_ques_size = max(max_ctx_ques_size, len(para) + len(data['ques_idxs'] + 3))
+		for para in data['context_idxs']:
+			max_ctx_ques_size = max(max_ctx_ques_size, 3 + len(para) + len(data['ques_idxs']))
 	assert max_ctx_ques_size <= MAX_SEQ_LEN
 	context_ques_idxs = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(UNK_IDX)
-	context_ques_masks = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(0)
+	context_ques_masks = torch.FloatTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(0.)
 	context_ques_segments = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(1)
-	y1 = torch.LongTensor(bsz, 2)
-	y2 = torch.LongTensor(bsz)
+	y1 = np.zeros((bsz, 2))
+	y2 = np.zeros((bsz, 2))
 	y1_flat = torch.LongTensor(bsz)
 	y2_flat = torch.LongTensor(bsz)
 	q_type = torch.LongTensor(bsz)
@@ -28,16 +29,16 @@ def build_tensor(batch, cuda):
 		context_ques_idxs[data_i, :, 1 + len(data['ques_idxs']): 2 + len(data['ques_idxs'])] = SEP_IDX
 		context_ques_segments[data_i, :, : 2 + len(data['ques_idxs'])] = 0
 		for para_i, para in enumerate(data['context_idxs']):
-			context_ques_idxs[data_i, para_i, 2 + len(data['ques_idxs']): 3 + len(data['ques_idxs']) + len(para)] = para
-			context_ques_idxs[data_i, :, 3 + len(data['ques_idxs']) + len(para): 4 + len(data['ques_idxs']) + len(para)] = SEP_IDX
-			context_ques_masks[data_i, para_i, : 4 + len(data['ques_idxs']) + len(para)] = 1
+			context_ques_idxs[data_i, para_i, 2 + len(data['ques_idxs']) : 2 + len(data['ques_idxs']) + len(para)] = para
+			context_ques_idxs[data_i, :, 2 + len(data['ques_idxs']) + len(para): 3 + len(data['ques_idxs']) + len(para)] = SEP_IDX
+			context_ques_masks[data_i, para_i, : 3 + len(data['ques_idxs']) + len(para)] = 1.
 
 		if batch[data_i][Y1_KEY][1] >= 0:
 			# TODO: set y1, y2
 			y1[data_i] = data[Y1_KEY]
 			y2[data_i] = data[Y2_KEY]
-			y1_flat[data_i] = data_i * max_ctx_ques_size + 2 + len(data['ques_idxs']) + data[Y1_KEY]
-			y2_flat[data_i] = data_i * max_ctx_ques_size + 2 + len(data['ques_idxs']) + data[Y2_KEY]
+			y1_flat[data_i] = data_i * max_ctx_ques_size + 2 + len(data['ques_idxs']) + data[Y1_KEY][1]
+			y2_flat[data_i] = data_i * max_ctx_ques_size + 2 + len(data['ques_idxs']) + data[Y2_KEY][1]
 			q_type[data_i] = 0
 		elif batch[data_i][Y1_KEY][1] == -1:
 			y1[data_i] = (IGNORE_INDEX, IGNORE_INDEX)
@@ -59,8 +60,6 @@ def build_tensor(batch, cuda):
 		context_ques_idxs = context_ques_idxs.cuda()
 		context_ques_masks = context_ques_masks.cuda()
 		context_ques_segments = context_ques_segments.cuda()
-		y1 = y1.cuda()
-		y2 = y2.cuda()
 		y1_flat = y1_flat.cuda()
 		y2_flat = y2_flat.cuda()
 		q_type = q_type.cuda()

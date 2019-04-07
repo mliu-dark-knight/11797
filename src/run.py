@@ -3,17 +3,14 @@ import os
 import shutil
 import time
 
-import numpy as np
 import ujson as json
 from torch import optim, nn
 from torch.autograd import Variable
-from tqdm import tqdm
 
 from model.hop_model import HOPModel
 from utils.iterator import *
 
-nll_sum = nn.CrossEntropyLoss(size_average=False, ignore_index=IGNORE_INDEX)
-nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
+nll = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
 
 
 def create_exp_dir(path, scripts_to_save=None):
@@ -27,40 +24,6 @@ def create_exp_dir(path, scripts_to_save=None):
 		for script in scripts_to_save:
 			dst_file = os.path.join(path, 'scripts', os.path.basename(script))
 			shutil.copyfile(script, dst_file)
-
-
-
-def model_output(config, model, full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs,
-                 context_char_idxs_r, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping,
-                 orig_idxs, orig_idxs_r, return_yp=False):
-	predict_support = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs,
-	                        context_lens, start_mapping, end_mapping, stage='locate', return_yp=return_yp)
-	if return_yp:
-		if config.use_gt:
-			logit1, logit2, predict_type, yp1, yp2 \
-				= model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
-				        None, None, None, stage='reason', return_yp=True)
-		else:
-			logit1, logit2, _, = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
-			                           None, None, None, stage='reason', return_yp=False)
-			batch_p = torch.sigmoid(predict_support[:, :, 1]).data.cpu() < config.sp_threshold
-			para_limit = context_idxs.size()[1]
-			char_limit = config.char_limit
-			cpu = config.cpu
-			cur_batch = sample_sent(full_batch, para_limit, char_limit, batch_p=batch_p, force_drop=True)
-
-			context_idxs_r, context_char_idxs_r, _, _, _, _, _, orig_idxs_r \
-				= build_ctx_tensor(cur_batch, char_limit, not cpu)
-			_, _, predict_type, yp1, yp2 = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
-			                                     None, None, None, stage='reason', return_yp=True)
-		return logit1, logit2, predict_support, predict_type, \
-		       orig_idxs[np.arange(len(yp1)), orig_idxs_r[np.arange(len(yp1)), yp1.data.cpu().numpy()]], \
-		       orig_idxs[np.arange(len(yp2)), orig_idxs_r[np.arange(len(yp2)), yp2.data.cpu().numpy()]]
-
-	logit1, logit2, predict_type = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
-	                                     None, None, None, stage='reason', return_yp=False)
-
-	return logit1, logit2, predict_support, predict_type
 
 
 def unpack(data):
@@ -125,15 +88,17 @@ def train(config):
 
 	for epoch in range(config.epoch):
 		for data in build_iterator(config, train_datapoints, config.batch_size, not config.debug):
-			_, context_ques_idxs, context_ques_masks, context_ques_segments, q_type, y1, y2, y1_flat, y2_flat = unpack(data)
+			_, context_ques_idxs, context_ques_masks, context_ques_segments, q_type, y1, y2, y1_flat, y2_flat = unpack(
+				data)
 
 			start_logits, end_logits, type_logits = model(context_ques_idxs, context_ques_masks, context_ques_segments)
-			loss = nll_average(start_logits, y1_flat) + nll_average(end_logits, y2_flat) + nll_average(type_logits, q_type)
+			loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)
 
 			optimizer.zero_grad()
 			loss.backward()
 			optimizer.step()
 
+			total_loss += loss.item()
 			global_step += 1
 
 			if global_step % config.period == 0:
@@ -141,6 +106,7 @@ def train(config):
 				elapsed = time.time() - start_time
 				logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f}'.format(
 					epoch, global_step, lr, elapsed * 1000 / config.period, cur_loss))
+				total_loss = 0
 				start_time = time.time()
 
 			if global_step % config.checkpoint == 0:
@@ -178,6 +144,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 
 		_, context_ques_idxs, context_ques_masks, context_ques_segments, q_type, y1, y2, y1_flat, y2_flat = unpack(data)
 
+		start_logits, end_logits, type_logits, yp1, yp2 = model(context_ques_idxs, context_ques_masks, context_ques_segments, return_yp=True)
 
 		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(predict_type.data.cpu().numpy(), 1))
 		answer_dict.update(answer_dict_)

@@ -29,3 +29,4 @@ SEP_IDX = tokenizer.vocab[SEP]
 CLS_IDX = tokenizer.vocab[CLS]
 UNK_IDX = tokenizer.vocab[UNK]
 MAX_SEQ_LEN = 512
+BERT_HIDDEN = 768
