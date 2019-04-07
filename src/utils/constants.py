@@ -2,7 +2,7 @@ from pytorch_pretrained_bert import BertTokenizer
 
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
-
+IGNORE_INDEX = -1
 FULL_BATCH_KEY = 'full_batch'
 CONTEXT_QUES_IDXS_KEY = 'context_ques_idxs'
 CONTEXT_QUES_MASKS_KEY = 'context_ques_masks'
@@ -14,9 +14,9 @@ START_MAPPING_KEY = 'start_mapping'
 END_MAPPING_KEY = 'end_mapping'
 ALL_MAPPING_KEY = 'all_mapping'
 Y1_KEY = 'y1'
-Y1_R_KEY = 'y1_r'
+Y1_FLAT_KEY = 'y1_flat'
 Y2_KEY = 'y2'
-Y2_R_KEY = 'y2_r'
+Y2_FLAT_KEY = 'y2_flat'
 ORIG_IDXS = 'orig_idxs'
 ORIG_IDXS_R = 'orig_idxs_r'
 Q_TYPE_KEY = 'q_type'

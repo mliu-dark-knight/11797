@@ -16,6 +16,10 @@ def build_tensor(batch, cuda):
 	context_ques_idxs = torch.LongTensor((bsz, max_para_cnt, max_ctx_ques_size)).fill_(UNK_IDX)
 	context_ques_masks = torch.LongTensor((bsz, max_para_cnt, max_ctx_ques_size)).fill_(0)
 	context_ques_segments = torch.LongTensor((bsz, max_para_cnt, max_ctx_ques_size)).fill_(1)
+	y1 = torch.LongTensor((bsz, 2))
+	y2 = torch.LongTensor(bsz)
+	y1_flat = torch.LongTensor(bsz)
+	y2_flat = torch.LongTensor(bsz)
 	q_type = torch.LongTensor(bsz)
 
 	for data_i, data in enumerate(batch):
@@ -31,10 +35,22 @@ def build_tensor(batch, cuda):
 
 		if batch[data_i][Y1_KEY][1] >= 0:
 			# TODO: set y1, y2
+			y1[data_i] = data[Y1_KEY]
+			y2[data_i] = data[Y2_KEY]
+			y1_flat[data_i] = data_i * max_ctx_ques_size + 2 + len(data['ques_idxs']) + data[Y1_KEY]
+			y2_flat[data_i] = data_i * max_ctx_ques_size + 2 + len(data['ques_idxs']) + data[Y2_KEY]
 			q_type[data_i] = 0
 		elif batch[data_i][Y1_KEY][1] == -1:
+			y1[data_i] = (IGNORE_INDEX, IGNORE_INDEX)
+			y2[data_i] = (IGNORE_INDEX, IGNORE_INDEX)
+			y1_flat[data_i] = IGNORE_INDEX
+			y2_flat[data_i] = IGNORE_INDEX
 			q_type[data_i] = 1
 		elif batch[data_i][Y1_KEY][1] == -2:
+			y1[data_i] = (IGNORE_INDEX, IGNORE_INDEX)
+			y2[data_i] = (IGNORE_INDEX, IGNORE_INDEX)
+			y1_flat[data_i] = IGNORE_INDEX
+			y2_flat[data_i] = IGNORE_INDEX
 			q_type[data_i] = 2
 		else:
 			assert False
@@ -44,8 +60,12 @@ def build_tensor(batch, cuda):
 		context_ques_idxs = context_ques_idxs.cuda()
 		context_ques_masks = context_ques_masks.cuda()
 		context_ques_segments = context_ques_segments.cuda()
+		y1 = y1.cuda()
+		y2 = y2.cuda()
+		y1_flat = y1_flat.cuda()
+		y2_flat = y2_flat.cuda()
 		q_type = q_type.cuda()
-	return context_ques_idxs, context_ques_masks, context_ques_segments, q_type
+	return context_ques_idxs, context_ques_masks, context_ques_segments, q_type, y1, y2, y1_flat, y2_flat
 
 
 class DataIterator(object):
@@ -67,8 +87,7 @@ class DataIterator(object):
 			cur_batch = self.bucket[start_id: start_id + cur_bsz]
 
 			ids = [data[ID_KEY] for data in cur_batch]
-			context_ques_idxs, context_ques_masks, context_ques_segments, q_type = build_tensor(cur_batch,
-																								not self.debug)
+			context_ques_idxs, context_ques_masks, context_ques_segments, q_type, y1, y2, y1_flat, y2_flat = build_tensor(cur_batch, not self.debug)
 
 			self.bkt_ptr += cur_bsz
 			if self.bkt_ptr >= len(self.bucket):
@@ -81,4 +100,8 @@ class DataIterator(object):
 				CONTEXT_QUES_MASKS_KEY: context_ques_masks,
 				CONTEXT_QUES_SEGMENTS_KEY: context_ques_segments,
 				Q_TYPE_KEY: q_type,
+				Y1_KEY: y1,
+				Y2_KEY: y2,
+				Y1_FLAT_KEY: y1_flat,
+				Y2_FLAT_KEY: y2_flat,
 			}

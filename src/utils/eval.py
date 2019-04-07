@@ -5,7 +5,6 @@ from collections import Counter
 import torch
 from sklearn import metrics
 
-IGNORE_INDEX = -100
 
 RE_D = re.compile('\d')
 def has_digit(string):

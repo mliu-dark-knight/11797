@@ -225,10 +225,17 @@ def convert_tokens_to_ids(tokens):
 
 
 def build_features(examples, data_type, out_file):
+	def filter_func(example):
+		return len(3 + example["context_tokens"] + len(example["ques_tokens"])) > MAX_SEQ_LEN
+
 	print("Processing {} examples...".format(data_type))
 	datapoints = []
 	total = 0
+	total_ = 0
 	for example in tqdm(examples):
+		total_ += 1
+		if filter_func(example):
+			continue
 		total += 1
 		context_idxs = [np.array(convert_tokens_to_ids(para)) for para in example['context_tokens']]
 		ques_idxs = np.array(convert_tokens_to_ids(example['ques_tokens']))
@@ -245,7 +252,7 @@ def build_features(examples, data_type, out_file):
 			'y2': y2,
 			'id': example['id'],
 			'start_end_facts': example['start_end_facts']})
-	print("Build {} instances of features in total".format(total))
+	print("Build {} / {} instances of features in total".format(total, total_))
 	# pickle.dump(datapoints, open(out_file, 'wb'), protocol=-1)
 	torch.save(datapoints, out_file)
 
