@@ -226,7 +226,7 @@ def convert_tokens_to_ids(tokens):
 
 def build_features(examples, data_type, out_file):
 	def filter_func(example):
-		return len(3 + example["context_tokens"] + len(example["ques_tokens"])) > MAX_SEQ_LEN
+		return 3 + len(example["context_tokens"]) + len(example["ques_tokens"]) > MAX_SEQ_LEN
 
 	print("Processing {} examples...".format(data_type))
 	datapoints = []
