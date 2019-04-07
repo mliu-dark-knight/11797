@@ -237,7 +237,6 @@ def build_features(examples, data_type, out_file):
 	datapoints = []
 	total = 0
 	total_ = 0
-	max_answer_len = 0
 	for example in tqdm(examples):
 		total_ += 1
 		if filter_func(example):
@@ -248,7 +247,6 @@ def build_features(examples, data_type, out_file):
 
 		start, end = example["y1"], example["y2"]
 		y1, y2 = start, end
-		max_answer_len = max(max_answer_len, y2[1] + 1 - y1[1])
 
 		datapoints.append({
 			'context_tokens': example['context_tokens'],
@@ -260,7 +258,6 @@ def build_features(examples, data_type, out_file):
 			'id': example['id'],
 			'start_end_facts': example['start_end_facts']})
 	print("Build {} / {} instances of features in total".format(total, total_))
-	print('max answer len {}'.format(max_answer_len))
 	# pickle.dump(datapoints, open(out_file, 'wb'), protocol=-1)
 	torch.save(datapoints, out_file)
 
