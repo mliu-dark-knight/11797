@@ -1,12 +1,14 @@
 import random
 
 import numpy as np
+import spacy
 import torch
 import ujson as json
 from joblib import Parallel, delayed
 from pytorch_pretrained_bert import BertTokenizer
 from tqdm import tqdm
 
+nlp = spacy.blank("en")
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
 import bisect
@@ -31,9 +33,9 @@ def find_nearest(a, target, test_func=lambda x: True):
 
 
 def fix_span(para, offsets, span):
+	# span not necessarily in para
 	span = span.strip()
 	parastr = "".join(para)
-	assert span in parastr, '{}\t{}'.format(span, parastr)
 	begins, ends = map(list, zip(*[y for x in offsets for y in x]))
 
 	best_dist = 1e200
@@ -54,7 +56,8 @@ def fix_span(para, offsets, span):
 			if best_dist == 0:
 				break
 
-	assert best_indices is not None
+	if best_indices is None:
+		return None, None, best_dist
 	return parastr[best_indices[0]:best_indices[1]], best_indices, best_dist
 
 
@@ -66,7 +69,6 @@ def convert_idx(text, tokens):
 	current = 0
 	spans = []
 	for token in tokens:
-		pre = current
 		current = text.find(token, current)
 		if current < 0:
 			raise Exception()
@@ -75,33 +77,20 @@ def convert_idx(text, tokens):
 	return spans
 
 
-def prepro_sent(sent):
-	return sent
-	# return sent.replace("''", '" ').replace("``", '" ')
-
-
-def _process_article(article, config):
-	paragraphs = article['context']
-	# some articles in the fullwiki dev/test sets have zero paragraphs
-	if len(paragraphs) == 0:
-		paragraphs = [['some random title', 'some random stuff']]
-
-	text_context, context_tokens, context_chars = '', [], []
+def _process_para(para, sp_set):
+	text_context, context_tokens = '', []
 	offsets = []
 	flat_offsets = []
 	start_end_facts = []  # (start_token_id, end_token_id, is_sup_fact=True/False)
 	sent2title_ids = []
 
-	def _process(sent, is_sup_fact, is_title=False):
-		nonlocal text_context, context_tokens, context_chars, offsets, start_end_facts, flat_offsets
-		N_chars = len(text_context)
+	def _process(sent, is_sup_fact, N_chars, is_title=False):
+		nonlocal text_context, context_tokens, offsets, start_end_facts, flat_offsets
 
-		sent = sent
 		sent_tokens = word_tokenize(sent)
 		if is_title:
-			sent = '<t> {} </t>'.format(sent)
-			sent_tokens = ['<t>'] + sent_tokens + ['</t>']
-		sent_chars = [list(token) for token in sent_tokens]
+			sent_tokens = sent_tokens + [':']
+		sent = ' '.join(sent_tokens)
 		sent_spans = convert_idx(sent, sent_tokens)
 
 		sent_spans = [[N_chars + e[0], N_chars + e[1]] for e in sent_spans]
@@ -109,70 +98,114 @@ def _process_article(article, config):
 
 		text_context += sent
 		context_tokens.extend(sent_tokens)
-		context_chars.extend(sent_chars)
 		start_end_facts.append((N_tokens, N_tokens + my_N_tokens, is_sup_fact))
 		offsets.append(sent_spans)
 		flat_offsets.extend(sent_spans)
+
+	cur_title, cur_para = para[0], para[1]
+	_process(cur_title, False, len(text_context), is_title=True)
+	sent2title_ids.append((cur_title, -1))
+	for sent_id, sent in enumerate(cur_para):
+		is_sup_fact = (cur_title, sent_id) in sp_set
+		_process(sent, is_sup_fact, len(text_context))
+		sent2title_ids.append((cur_title, sent_id))
+
+	return text_context, context_tokens, offsets, flat_offsets, start_end_facts, sent2title_ids
+
+
+def overlap_span(start, end, y1, y2):
+	if start <= y1 < end or start <= y2 < end:
+		return True
+	return y1 <= start and y2 >= end
+
+def fix_start_end_facts(start_end_facts, y1, y2):
+	assert y1[0] == y2[0]
+	fixed_start_end_facts = []
+	for para_id, start_end_fact in enumerate(start_end_facts):
+		fixed_start_end_fact = []
+		if para_id == y1[0]:
+			for start, end, is_sp in start_end_fact:
+				if overlap_span(start, end, y1[1], y2[1]):
+					fixed_start_end_fact.append((start, end, True))
+				else:
+					fixed_start_end_fact.append((start, end, is_sp))
+		else:
+			fixed_start_end_fact = start_end_fact
+		fixed_start_end_facts.append(fixed_start_end_fact)
+	return fixed_start_end_facts
+
+
+def _process_article(article):
+	paragraphs = article['context']
+	# some articles in the fullwiki dev/test sets have zero paragraphs
+	if len(paragraphs) == 0:
+		return None
+
+	text_context, context_tokens = [], []
+	offsets = []
+	flat_offsets = []
+	start_end_facts = []  # (start_token_id, end_token_id, is_sup_fact=True/False)
+	sent2title_ids = []
 
 	if 'supporting_facts' in article:
 		sp_set = set(list(map(tuple, article['supporting_facts'])))
 	else:
 		sp_set = set()
 
-	sp_fact_cnt = 0
 	for para in paragraphs:
-		cur_title, cur_para = para[0], para[1]
-		_process(prepro_sent(cur_title), False, is_title=True)
-		sent2title_ids.append((cur_title, -1))
-		for sent_id, sent in enumerate(cur_para):
-			is_sup_fact = (cur_title, sent_id) in sp_set
-			if is_sup_fact:
-				sp_fact_cnt += 1
-			_process(prepro_sent(sent), is_sup_fact)
-			sent2title_ids.append((cur_title, sent_id))
+		text_context_para, context_tokens_para, offsets_para, flat_offsets_para, start_end_facts_para, sent2title_ids_para = _process_para(para, sp_set)
+		text_context.append(text_context_para)
+		context_tokens.append(context_tokens_para)
+		offsets.append(offsets_para)
+		flat_offsets.append(flat_offsets_para)
+		start_end_facts.append(start_end_facts_para)
+		sent2title_ids.append(sent2title_ids_para)
 
 	if 'answer' in article:
-		answer = article['answer'].strip()
+		answer = ' '.join(word_tokenize(article['answer'].strip()))
 		if answer.lower() == 'yes':
-			best_indices = [-1, -1]
+			best_indices = ((-1, -1), (-1, -1))
 		elif answer.lower() == 'no':
-			best_indices = [-2, -2]
+			best_indices = ((-1, -2), (-1, -2))
 		else:
-			if article['answer'].strip() not in ''.join(text_context):
+			if answer not in ''.join(text_context):
 				# in the fullwiki setting, the answer might not have been retrieved
 				# use (0, 1) so that we can proceed
-				best_indices = (0, 1)
+				best_indices = ((-1, 0), (-1, 1))
 			else:
-				_, best_indices, _ = fix_span(text_context, offsets, article['answer'])
+				triples = [(para_id, *fix_span(text_context_para, offsets_para, answer)) for para_id, (text_context_para, offsets_para) in enumerate(zip(text_context, offsets))]
+				triples.sort(key=lambda e: e[3])
+				best_para, _, best_indices, _ = triples[0]
+				assert best_indices is not None
 				answer_span = []
-				for idx, span in enumerate(flat_offsets):
+				for idx, span in enumerate(flat_offsets[best_para]):
 					if not (best_indices[1] <= span[0] or best_indices[0] >= span[1]):
-						answer_span.append(idx)
+						answer_span.append((best_para, idx))
 				best_indices = (answer_span[0], answer_span[-1])
+				start_end_facts = fix_start_end_facts(start_end_facts, best_indices[0], best_indices[1])
 	else:
 		# some random stuff
 		answer = 'random'
-		best_indices = (0, 1)
+		best_indices = ((-1, -2), (-1, -2))
 
-	ques_tokens = word_tokenize(prepro_sent(article['question']))
-	ques_chars = [list(token) for token in ques_tokens]
+	ques_tokens = word_tokenize(article['question'])
 
-	example = {'context_tokens': context_tokens, 'context_chars': context_chars, 'ques_tokens': ques_tokens,
-	           'ques_chars': ques_chars, 'y1s': [best_indices[0]], 'y2s': [best_indices[1]], 'id': article['_id'],
+	example = {'context_tokens': context_tokens, 'ques_tokens': ques_tokens,
+	           'y1s': [best_indices[0]], 'y2s': [best_indices[1]], 'id': article['_id'],
 	           'start_end_facts': start_end_facts}
-	eval_example = {'context': text_context, 'question': prepro_sent((article['question'])), 'spans': flat_offsets,
+	eval_example = {'context': text_context, 'question': (article['question']), 'spans': flat_offsets,
 	                'answer': [answer], 'id': article['_id'], 'sent2title_ids': sent2title_ids}
 	return example, eval_example
 
 
-def process_file(filename, config):
+def process_file(filename):
 	data = json.load(open(filename, 'r'))
 
-	examples = []
 	eval_examples = {}
 
 	outputs = Parallel(n_jobs=12, verbose=10)(delayed(_process_article)(article, config) for article in data)
 	# outputs = [_process_article(article, config) for article in data]
+	outputs = [output for output in outputs if output is not None]
 	examples = [e[0] for e in outputs]
 	for _, e in outputs:
 		if e is not None:
@@ -183,96 +216,32 @@ def process_file(filename, config):
 
 	return examples, eval_examples
 
-
-def get_embedding(counter, data_type, limit=-1, emb_file=None, size=None, vec_size=None, token2idx_dict=None):
-	print("Generating {} embedding...".format(data_type))
-	embedding_dict = {}
-	filtered_elements = [k for k, v in counter.items() if v > limit]
-	if emb_file is not None:
-		assert size is not None
-		assert vec_size is not None
-		with open(emb_file, "r", encoding="utf-8") as fh:
-			for line in tqdm(fh, total=size):
-				array = line.split()
-				word = "".join(array[0:-vec_size])
-				vector = list(map(float, array[-vec_size:]))
-				if word in counter and counter[word] > limit:
-					embedding_dict[word] = vector
-		print("{} / {} tokens have corresponding {} embedding vector".format(
-			len(embedding_dict), len(filtered_elements), data_type))
-	else:
-		assert vec_size is not None
-		for token in filtered_elements:
-			embedding_dict[token] = [np.random.normal(
-				scale=0.01) for _ in range(vec_size)]
-		print("{} tokens have corresponding embedding vector".format(
-			len(filtered_elements)))
-
-	NULL = "--NULL--"
-	OOV = "--OOV--"
-	token2idx_dict = {token: idx for idx, token in enumerate(
-		embedding_dict.keys(), 2)} if token2idx_dict is None else token2idx_dict
-	token2idx_dict[NULL] = 0
-	token2idx_dict[OOV] = 1
-	embedding_dict[NULL] = [0. for _ in range(vec_size)]
-	embedding_dict[OOV] = [0. for _ in range(vec_size)]
-	idx2emb_dict = {idx: embedding_dict[token]
-	                for token, idx in token2idx_dict.items()}
-	emb_mat = [idx2emb_dict[idx] for idx in range(len(idx2emb_dict))]
-
-	idx2token_dict = {idx: token for token, idx in token2idx_dict.items()}
-
-	return emb_mat, token2idx_dict, idx2token_dict
+def convert_tokens_to_ids(tokens):
+	return [tokenizer.vocab[token] if token in tokenizer.vocab else tokenizer.vocab['[UNK]'] for token in tokens]
 
 
-def build_features(config, examples, data_type, out_file):
-	if data_type == 'test':
-		para_limit, ques_limit = 0, 0
-		for example in tqdm(examples):
-			para_limit = max(para_limit, len(example['context_tokens']))
-			ques_limit = max(ques_limit, len(example['ques_tokens']))
-	else:
-		para_limit = config.para_limit
-		ques_limit = config.ques_limit
-
-	char_limit = config.char_limit
-
-	def filter_func(example):
-		return len(example["context_tokens"]) > para_limit or len(example["ques_tokens"]) > ques_limit
-
+def build_features(examples, data_type, out_file):
 	print("Processing {} examples...".format(data_type))
 	datapoints = []
 	total = 0
-	total_ = 0
 	for example in tqdm(examples):
-		total_ += 1
-
-		if filter_func(example):
-			continue
-
 		total += 1
-
-		context_idxs = np.zeros(para_limit, dtype=np.int64)
-		context_char_idxs = np.zeros((para_limit, char_limit), dtype=np.int64)
-		ques_idxs = np.zeros(ques_limit, dtype=np.int64)
-		ques_char_idxs = np.zeros((ques_limit, char_limit), dtype=np.int64)
-
-		context_idxs[:len(example['context_tokens'])] = tokenizer.convert_tokens_to_ids(example['context_tokens'])
-		ques_idxs[:len(example['ques_tokens'])] = tokenizer.convert_tokens_to_ids(example['ques_tokens'])
+		context_idxs = [np.array(convert_tokens_to_ids(para)) for para in example['context_tokens']]
+		ques_idxs = np.array(convert_tokens_to_ids(example['ques_tokens']))
 
 		start, end = example["y1s"][-1], example["y2s"][-1]
 		y1, y2 = start, end
 
 		datapoints.append({
-			'context_idxs': torch.from_numpy(context_idxs),
-			'context_char_idxs': torch.from_numpy(context_char_idxs),
-			'ques_idxs': torch.from_numpy(ques_idxs),
-			'ques_char_idxs': torch.from_numpy(ques_char_idxs),
+			'context_tokens': example['context_tokens'],
+			'ques_tokens': example['ques_tokens'],
+			'context_idxs': context_idxs,
+			'ques_idxs': ques_idxs,
 			'y1': y1,
 			'y2': y2,
 			'id': example['id'],
 			'start_end_facts': example['start_end_facts']})
-	print("Build {} / {} instances of features in total".format(total, total_))
+	print("Build {} instances of features in total".format(total))
 	# pickle.dump(datapoints, open(out_file, 'wb'), protocol=-1)
 	torch.save(datapoints, out_file)
 
@@ -287,7 +256,7 @@ def save(filename, obj, message=None):
 def prepro(config):
 	random.seed(13)
 
-	examples, eval_examples = process_file(config.data_file, config)
+	examples, eval_examples = process_file(config.data_file)
 
 	if config.data_split == 'train':
 		record_file = config.train_record_file
@@ -299,5 +268,5 @@ def prepro(config):
 		record_file = config.test_record_file
 		eval_file = config.test_eval_file
 
-	build_features(config, examples, config.data_split, record_file)
+	build_features(examples, config.data_split, record_file)
 	save(eval_file, eval_examples, message='{} eval'.format(config.data_split))
