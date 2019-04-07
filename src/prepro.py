@@ -248,7 +248,7 @@ def build_features(examples, data_type, out_file):
 
 		start, end = example["y1"][1], example["y2"][1]
 		y1, y2 = start, end
-		max_answer_len = max(max_answer_len, y2[1] + 1 - y1[1])
+		max_answer_len = max(max_answer_len, y2 + 1 - y1)
 
 		datapoints.append({
 			'context_tokens': example['context_tokens'],
