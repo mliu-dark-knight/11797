@@ -147,7 +147,7 @@ def fix_start_end_facts(start_end_facts, y1, y2):
 	return fixed_start_end_facts
 
 
-def _process_article(article):
+def _process_article(article, data_split):
 	paragraphs = article['context']
 	# some articles in the fullwiki dev/test sets have zero paragraphs
 	if len(paragraphs) == 0:
@@ -185,7 +185,10 @@ def _process_article(article):
 			if answer not in ''.join(text_context):
 				# in the fullwiki setting, the answer might not have been retrieved
 				# use (0, 1) so that we can proceed
-				best_indices = ((-1, 0), (-1, 1))
+				if data_split == 'test':
+					best_indices = ((-1, 0), (-1, 1))
+				else:
+					return None
 			else:
 				triples = [(para_id, *fix_span(text_context_para, offsets_para, answer)) for
 						   para_id, (text_context_para, offsets_para) in enumerate(zip(text_context, offsets))]
@@ -213,13 +216,13 @@ def _process_article(article):
 	return example, eval_example
 
 
-def process_file(filename):
+def process_file(filename, data_split):
 	data = json.load(open(filename, 'r'))
 
 	eval_examples = {}
 
-	outputs = Parallel(n_jobs=32, verbose=10)(delayed(_process_article)(article) for article in data)
-	# outputs = [_process_article(article) for article in data]
+	outputs = Parallel(n_jobs=32, verbose=10)(delayed(_process_article)(article, data_split) for article in data)
+	# outputs = [_process_article(article, data_split) for article in data]
 	outputs = [output for output in outputs if output is not None]
 	examples = [e[0] for e in outputs]
 	for _, e in outputs:
@@ -299,7 +302,7 @@ def prepro(config):
 		examples = torch.load(tmp_record_file)
 		eval_examples = torch.load(tmp_eval_file)
 	else:
-		examples, eval_examples = process_file(config.data_file)
+		examples, eval_examples = process_file(config.data_file, config.data_split)
 		torch.save(examples, tmp_record_file)
 		torch.save(eval_examples, tmp_eval_file)
 
