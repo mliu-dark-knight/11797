@@ -205,7 +205,7 @@ def process_file(filename):
 
 	eval_examples = {}
 
-	outputs = Parallel(n_jobs=16, verbose=10)(delayed(_process_article)(article) for article in data)
+	outputs = Parallel(n_jobs=32, verbose=10)(delayed(_process_article)(article) for article in data)
 	# outputs = [_process_article(article, config) for article in data]
 	outputs = [output for output in outputs if output is not None]
 	examples = [e[0] for e in outputs]
