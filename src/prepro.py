@@ -225,7 +225,10 @@ def convert_tokens_to_ids(tokens):
 
 def build_features(examples, data_type, out_file):
 	def filter_func(example):
-		return 3 + len(example["context_tokens"]) + len(example["ques_tokens"]) > MAX_SEQ_LEN
+		for para in example['context_tokens']:
+			if 3 * len(para) + len(example["ques_tokens"]) > MAX_SEQ_LEN:
+				return True
+		return False
 
 	print("Processing {} examples...".format(data_type))
 	datapoints = []
@@ -242,7 +245,7 @@ def build_features(examples, data_type, out_file):
 
 		start, end = example["y1s"][-1], example["y2s"][-1]
 		y1, y2 = start, end
-		max_answer_len = max(max_answer_len, y2 + 1 - y1)
+		max_answer_len = max(max_answer_len, y2[1] + 1 - y1[1])
 
 		datapoints.append({
 			'context_tokens': example['context_tokens'],
