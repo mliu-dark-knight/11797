@@ -292,8 +292,8 @@ def prepro(config):
 		eval_examples = torch.load(tmp_eval_file)
 	else:
 		examples, eval_examples = process_file(config.data_file)
-		torch.save(examples, record_file)
-		torch.save(eval_examples, eval_file)
+		torch.save(examples, tmp_record_file)
+		torch.save(eval_examples, tmp_eval_file)
 
 	build_features(examples, config.data_split, record_file)
 	save(eval_file, eval_examples, message='{} eval'.format(config.data_split))
