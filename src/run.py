@@ -31,12 +31,13 @@ def unpack(data):
 	context_ques_idxs = data[CONTEXT_QUES_IDXS_KEY]
 	context_ques_masks = data[CONTEXT_QUES_MASKS_KEY]
 	context_ques_segments = data[CONTEXT_QUES_SEGMENTS_KEY]
+	ques_size = data[QUES_SIZE_KEY]
 	q_type = Variable(data[Q_TYPE_KEY])
 	y1 = data[Y1_KEY]
 	y2 = data[Y2_KEY]
 	y1_flat = data[Y1_FLAT_KEY]
 	y2_flat = data[Y2_FLAT_KEY]
-	return full_batch, context_ques_idxs, context_ques_masks, context_ques_segments, q_type, y1, y2, y1_flat, y2_flat
+	return full_batch, context_ques_idxs, context_ques_masks, context_ques_segments, ques_size, q_type, y1, y2, y1_flat, y2_flat
 
 
 def build_iterator(config, bucket, batch_size, shuffle):
@@ -73,7 +74,7 @@ def train(config):
 	model = HOPModel(config)
 
 	logging('nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
-	ori_model = model if config.cpu else model.cuda()
+	ori_model = model if config.debug else model.cuda()
 	model = nn.DataParallel(ori_model)
 
 	lr = config.init_lr
@@ -88,8 +89,8 @@ def train(config):
 
 	for epoch in range(config.epoch):
 		for data in build_iterator(config, train_datapoints, config.batch_size, not config.debug):
-			_, context_ques_idxs, context_ques_masks, context_ques_segments, q_type, y1, y2, y1_flat, y2_flat = unpack(
-				data)
+			_, context_ques_idxs, context_ques_masks, context_ques_segments, ques_size, q_type, y1, y2, y1_flat, y2_flat \
+				= unpack(data)
 
 			start_logits, end_logits, type_logits = model(context_ques_idxs, context_ques_masks, context_ques_segments)
 			loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)
@@ -113,7 +114,7 @@ def train(config):
 				model.eval()
 				metrics = evaluate_batch(
 					build_iterator(config, dev_datapoints, math.ceil(config.batch_size), False),
-					model, 1 if config.debug else 0, dev_eval_file, config)
+					model, 1 if config.debug else 0, dev_eval_file)
 				model.train()
 
 				logging('-' * 89)
@@ -133,8 +134,15 @@ def train(config):
 	logging('best_dev_F1 {}'.format(best_dev_F1))
 
 
+def unflatten_y(y, max_ctx_ques_size, ques_size):
+	y1 = (y / max_ctx_ques_size).astype(int)
+	y2 = y % max_ctx_ques_size
+	y2 = y2 - ques_size - 2
+	return np.stack((y1, y2), axis=1)
+
+
 @torch.no_grad()
-def evaluate_batch(data_source, model, max_batches, eval_file, config):
+def evaluate_batch(data_source, model, max_batches, eval_file):
 	answer_dict = {}
 	sp_pred, sp_true = [], []
 	total_loss, step_cnt = 0, 0
@@ -142,20 +150,19 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	for step, data in enumerate(iter):
 		if step >= max_batches and max_batches > 0: break
 
-		_, context_ques_idxs, context_ques_masks, context_ques_segments, q_type, y1, y2, y1_flat, y2_flat = unpack(data)
+		_, context_ques_idxs, context_ques_masks, context_ques_segments, ques_size, q_type, y1, y2, y1_flat, y2_flat \
+			= unpack(data)
 
-		start_logits, end_logits, type_logits, yp1, yp2 = model(context_ques_idxs, context_ques_masks, context_ques_segments, return_yp=True)
+		start_logits, end_logits, type_logits, yp1, yp2 = model(context_ques_idxs, context_ques_masks,
+																context_ques_segments, return_yp=True)
+		loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)
 
-		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(predict_type.data.cpu().numpy(), 1))
+		max_ctx_ques_size = context_ques_idxs.size(2)
+		yp1 = unflatten_y(yp1.data.cpu().numpy(), max_ctx_ques_size, ques_size)
+		yp2 = unflatten_y(yp2.data.cpu().numpy(), max_ctx_ques_size, ques_size)
+
+		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(type_logits.data.cpu().numpy(), 1))
 		answer_dict.update(answer_dict_)
-
-		is_support_np = is_support.data.cpu().numpy().flatten()
-		predict_support_np = np.rint(torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy().flatten()).astype(int)
-		for sp_t, sp_p in zip(is_support_np, predict_support_np):
-			if sp_t == IGNORE_INDEX:
-				continue
-			sp_true.append(sp_t)
-			sp_pred.append(sp_p)
 
 		total_loss += loss.item()
 		step_cnt += 1

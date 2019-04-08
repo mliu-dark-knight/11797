@@ -40,7 +40,7 @@ class EncoderRNN(nn.Module):
 		self.nlayers = nlayers
 		self.return_last = return_last
 
-		# self.reset_parameters()
+	# self.reset_parameters()
 
 	def reset_parameters(self):
 		for rnn in self.rnns:
@@ -70,7 +70,7 @@ class EncoderRNN(nn.Module):
 				if output.size(1) < slen:  # used for parallel
 					padding = Variable(output.data.new(1, 1, 1).zero_())
 					output = torch.cat([output, padding.expand(output.size(0), slen - output.size(1), output.size(2))],
-					                   dim=1)
+									   dim=1)
 			if self.return_last:
 				outputs.append(hidden.permute(1, 0, 2).contiguous().view(bsz, -1))
 			else:

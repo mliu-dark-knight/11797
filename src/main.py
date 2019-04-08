@@ -10,16 +10,14 @@ data_dir = '../data'
 
 glove_word_file = os.path.join(data_dir, "glove.840B.300d.txt")
 
-train_eval =  os.path.join(data_dir, "train_eval.json")
+train_eval = os.path.join(data_dir, "train_eval.json")
 dev_eval = os.path.join(data_dir, "dev_eval.json")
 test_eval = os.path.join(data_dir, "test_eval.json")
 train_record_file = os.path.join(data_dir, 'train_record.pkl')
 dev_record_file = os.path.join(data_dir, 'dev_record.pkl')
 test_record_file = os.path.join(data_dir, 'test_record.pkl')
 
-
 parser.add_argument('--debug', default=True, action='store_true')
-parser.add_argument('--cpu', default=True, action='store_true')
 parser.add_argument('--p', type=float, default=1.0)
 parser.add_argument('--use_gt', default=False, action='store_true')
 parser.add_argument('--mode', type=str, default='train')
@@ -57,11 +55,14 @@ parser.add_argument('--sp_threshold', type=float, default=0.3)
 
 config = parser.parse_args()
 
+
 def _concat(filename):
-    if config.fullwiki:
-        path, name = os.path.split(filename)
-        return os.path.join(path, 'fullwiki.{}'.format(name))
-    return filename
+	if config.fullwiki:
+		path, name = os.path.split(filename)
+		return os.path.join(path, 'fullwiki.{}'.format(name))
+	return filename
+
+
 # config.train_record_file = _concat(config.train_record_file)
 config.dev_record_file = _concat(config.dev_record_file)
 config.test_record_file = _concat(config.test_record_file)
@@ -69,14 +70,14 @@ config.test_record_file = _concat(config.test_record_file)
 config.dev_eval_file = _concat(config.dev_eval_file)
 config.test_eval_file = _concat(config.test_eval_file)
 if config.debug:
-    config.batch_size = 4
-    config.checkpoint = 1
-    config.period = 1
+	config.batch_size = 4
+	config.checkpoint = 1
+	config.period = 1
 
 if __name__ == '__main__':
-    if config.mode == 'train':
-        train(config)
-    elif config.mode == 'prepro':
-        prepro(config)
-    # elif config.mode == 'test':
-    #     test(config)
+	if config.mode == 'train':
+		train(config)
+	elif config.mode == 'prepro':
+		prepro(config)
+	# elif config.mode == 'test':
+	#     test(config)
