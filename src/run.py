@@ -95,9 +95,11 @@ def train(config):
 				= unpack(data)
 
 			start_logits, end_logits, type_logits, support_logits \
-				= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping)
-			loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type) + \
-				   config.sp_lambda * nll(support_logits.view(-1, 2), is_support.view(-1))
+				= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping,
+				        task='reason')
+			loss = config.ans_lambda * (
+					nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)) + \
+			       config.sp_lambda * nll(support_logits.view(-1, 2), is_support.view(-1))
 
 			optimizer.zero_grad()
 			loss.backward()
@@ -160,9 +162,10 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 
 		start_logits, end_logits, type_logits, support_logits, yp1, yp2 \
 			= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping,
-					return_yp=True)
-		loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type) + \
-			   config.sp_lambda * nll(support_logits.view(-1, 2), is_support.view(-1))
+			        task='reason', return_yp=True)
+		loss = config.ans_lambda * (
+				nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)) + \
+		       config.sp_lambda * nll(support_logits.view(-1, 2), is_support.view(-1))
 
 		max_ctx_ques_size = context_ques_idxs.size(2)
 		yp1 = unflatten_y(yp1.data.cpu().numpy(), max_ctx_ques_size, ques_size)

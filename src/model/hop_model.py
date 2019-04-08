@@ -25,7 +25,9 @@ class HOPModel(nn.Module):
 		cache_mask = outer.new_tensor(np_mask)
 		return Variable(cache_mask, requires_grad=False)
 
-	def forward(self, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping, return_yp=False):
+	def forward(self, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping,
+	            task='reason', return_yp=False):
+		assert task in ['locate', 'reason']
 		bsz, para_cnt, token_cnt, sent_cnt \
 			= context_ques_idxs.size(0), context_ques_idxs.size(1), context_ques_idxs.size(2), all_mapping.size(2)
 		if self.config.debug:
@@ -38,10 +40,14 @@ class HOPModel(nn.Module):
 							context_ques_segments.view(bsz * para_cnt, token_cnt),
 							context_ques_masks.view(bsz * para_cnt, token_cnt),
 							output_all_encoded_layers=False)
-		support_input = torch.bmm(all_mapping.view(bsz * para_cnt, sent_cnt, token_cnt), bert_output)
+		support_input = torch.max(torch.mul(
+			all_mapping.view(bsz * para_cnt, sent_cnt, token_cnt, 1),
+			bert_output.unsqueeze(dim=1)), dim=2)[0].view(bsz, para_cnt, sent_cnt, self.bert_hidden)
 		one_logits = self.linear_support(support_input)
 		zero_logits = torch.zeros_like(one_logits)
 		support_logits = torch.cat((zero_logits, one_logits), dim=2).view(bsz, para_cnt, sent_cnt, 2)
+		if task == 'locate':
+			return support_logits
 		type_input = torch.max(pooled_output.view(bsz, para_cnt, self.bert_hidden), dim=1)[0]
 		type_logits = self.linear_type(type_input)
 		span_input = bert_output.view(bsz, para_cnt * token_cnt, self.bert_hidden)
