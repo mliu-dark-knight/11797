@@ -40,9 +40,9 @@ class HOPModel(nn.Module):
 							context_ques_segments.view(bsz * para_cnt, token_cnt),
 							context_ques_masks.view(bsz * para_cnt, token_cnt),
 							output_all_encoded_layers=False)
-		support_input = torch.max(torch.mul(
-			all_mapping.view(bsz * para_cnt, sent_cnt, token_cnt, 1),
-			bert_output.unsqueeze(dim=1)), dim=2)[0].view(bsz, para_cnt, sent_cnt, self.bert_hidden)
+		mapping_reshape = all_mapping.view(bsz * para_cnt, sent_cnt, token_cnt)
+		support_input = torch.div(torch.bmm(mapping_reshape, bert_output),
+		                          torch.sum(mapping_reshape, dim=2, keepdim=True) + SMALL_FLOAT)
 		one_logits = self.linear_support(support_input)
 		zero_logits = torch.zeros_like(one_logits)
 		support_logits = torch.cat((zero_logits, one_logits), dim=2).view(bsz, para_cnt, sent_cnt, 2)
