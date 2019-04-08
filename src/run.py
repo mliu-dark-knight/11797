@@ -175,7 +175,8 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		answer_dict.update(answer_dict_)
 
 		is_support_np = is_support.data.cpu().numpy().flatten()
-		predict_support_np = np.rint(torch.sigmoid(support_logits[:, :, 1]).data.cpu().numpy().flatten()).astype(int)
+		predict_support_np = np.rint(torch.sigmoid(support_logits[:, :, :, 1]).data.cpu().numpy().flatten()).astype(int)
+		assert len(is_support_np) == len(predict_support_np)
 		for sp_t, sp_p in zip(is_support_np, predict_support_np):
 			if sp_t == IGNORE_INDEX:
 				continue
