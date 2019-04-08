@@ -3,7 +3,7 @@ import string
 from collections import Counter
 
 import torch
-from sklearn import metrics
+from sklearn.metrics import precision_recall_fscore_support
 
 RE_D = re.compile('\d')
 
@@ -115,4 +115,6 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
 
 
 def evaluate_sp(sp_true, sp_pred):
-	return 100. * metrics.f1_score(sp_true, sp_pred)
+	sp_precision, sp_recall, sp_f1, _ \
+		= precision_recall_fscore_support(sp_true, sp_pred, labels=[0, 1], average='binary')
+	return 100. * sp_precision, 100. * sp_recall, 100. * sp_f1

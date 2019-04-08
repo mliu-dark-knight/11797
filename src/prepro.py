@@ -209,8 +209,8 @@ def _process_article(article, data_split):
 	ques_tokens = word_tokenize(article['question'])
 
 	example = {'context_tokens': context_tokens, 'ques_tokens': ques_tokens,
-			   'y1': best_indices[0], 'y2': best_indices[1], 'id': article['_id'],
-			   'start_end_facts': start_end_facts}
+			   Y1_KEY: best_indices[0], Y2_KEY: best_indices[1], ID_KEY: article['_id'],
+			   START_END_FACTS_KEY: start_end_facts}
 	eval_example = {'context': text_context, 'question': article['question'], 'spans': flat_offsets,
 					'answer': [answer], 'id': article['_id'], 'sent2title_ids': sent2title_ids}
 	return example, eval_example
@@ -227,7 +227,7 @@ def process_file(filename, data_split):
 	examples = [e[0] for e in outputs]
 	for _, e in outputs:
 		if e is not None:
-			eval_examples[e['id']] = e
+			eval_examples[e[ID_KEY]] = e
 
 	random.shuffle(examples)
 	print("{} questions in total".format(len(examples)))
@@ -241,7 +241,7 @@ def convert_tokens_to_ids(tokens):
 
 def build_features(examples, data_type, out_file):
 	def filter_func(example):
-		if example['y2'][1] - example['y1'][1] + 1 > ANS_LIMIT:
+		if example[Y2_KEY][1] - example[Y1_KEY][1] + 1 > ANS_LIMIT:
 			return True
 		if len(example['ques_tokens']) > QUES_LIMIT:
 			return True
@@ -259,18 +259,18 @@ def build_features(examples, data_type, out_file):
 		context_idxs = [torch.tensor(convert_tokens_to_ids(para[:PARA_LIMIT])) for para in example['context_tokens']]
 		ques_idxs = torch.tensor(convert_tokens_to_ids(example['ques_tokens']))
 
-		start, end = example["y1"], example["y2"]
+		start, end = example[Y1_KEY], example[Y2_KEY]
 		y1, y2 = start, end
 
 		datapoints.append({
 			'context_tokens': example['context_tokens'],
 			'ques_tokens': example['ques_tokens'],
-			'context_idxs': context_idxs,
-			'ques_idxs': ques_idxs,
-			'y1': y1,
-			'y2': y2,
-			'id': example['id'],
-			'start_end_facts': example['start_end_facts']})
+			CONTEXT_IDXS_KEY: context_idxs,
+			QUES_IDXS_KEY: ques_idxs,
+			Y1_KEY: y1,
+			Y2_KEY: y2,
+			ID_KEY: example[ID_KEY],
+			START_END_FACTS_KEY: example[START_END_FACTS_KEY]})
 	print("Build {} / {} instances of features in total".format(total, total_))
 	# pickle.dump(datapoints, open(out_file, 'wb'), protocol=-1)
 	torch.save(datapoints, out_file)

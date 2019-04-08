@@ -30,8 +30,8 @@ parser.add_argument('--train_record_file', type=str, default=train_record_file)
 parser.add_argument('--dev_record_file', type=str, default=dev_record_file)
 parser.add_argument('--test_record_file', type=str, default=test_record_file)
 
-parser.add_argument('--batch_size', type=int, default=64)
-parser.add_argument('--epoch', type=int, default=5)
+parser.add_argument('--batch_size', type=int, default=4)
+parser.add_argument('--epoch', type=int, default=4)
 parser.add_argument('--checkpoint', type=int, default=1000)
 parser.add_argument('--period', type=int, default=100)
 parser.add_argument('--init_lr', type=float, default=1e-4)
@@ -57,10 +57,8 @@ def _concat(filename):
 	return filename
 
 
-# config.train_record_file = _concat(config.train_record_file)
 config.dev_record_file = _concat(config.dev_record_file)
 config.test_record_file = _concat(config.test_record_file)
-# config.train_eval_file = _concat(config.train_eval_file)
 config.dev_eval_file = _concat(config.dev_eval_file)
 config.test_eval_file = _concat(config.test_eval_file)
 if config.debug:

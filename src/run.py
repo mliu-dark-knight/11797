@@ -33,12 +33,14 @@ def unpack(data):
 	context_ques_segments = data[CONTEXT_QUES_SEGMENTS_KEY]
 	answer_masks = data[ANSWER_MASKS_KEY]
 	ques_size = data[QUES_SIZE_KEY]
-	q_type = Variable(data[Q_TYPE_KEY])
+	q_type = data[Q_TYPE_KEY]
+	is_support = data[IS_SUPPORT_KEY]
+	all_mapping = data[ALL_MAPPING_KEY]
 	y1 = data[Y1_KEY]
 	y2 = data[Y2_KEY]
 	y1_flat = data[Y1_FLAT_KEY]
 	y2_flat = data[Y2_FLAT_KEY]
-	return full_batch, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, ques_size, q_type, y1, y2, y1_flat, y2_flat
+	return full_batch, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, ques_size, q_type, is_support, all_mapping, y1, y2, y1_flat, y2_flat
 
 
 def build_iterator(config, bucket, batch_size, shuffle):
@@ -90,12 +92,13 @@ def train(config):
 
 	for epoch in range(config.epoch):
 		for data in build_iterator(config, train_datapoints, config.batch_size, not config.debug):
-			_, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, ques_size, q_type, y1, y2, y1_flat, y2_flat \
+			_, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, ques_size, q_type, is_support, all_mapping, y1, y2, y1_flat, y2_flat \
 				= unpack(data)
 
-			start_logits, end_logits, type_logits \
-				= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks)
-			loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)
+			start_logits, end_logits, type_logits, support_logits \
+				= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping)
+			loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type) + \
+				   config.sp_lambda * nll(support_logits.view(-1, 2), is_support.view(-1))
 
 			optimizer.zero_grad()
 			loss.backward()
@@ -116,14 +119,14 @@ def train(config):
 				model.eval()
 				metrics = evaluate_batch(
 					build_iterator(config, dev_datapoints, math.ceil(config.batch_size), False),
-					model, 1 if config.debug else 0, dev_eval_file)
+					model, 1 if config.debug else 0, dev_eval_file, config)
 				model.train()
 
 				logging('-' * 89)
 				logging(
-					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | SP_F1 {:.4f}'.format(
+					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | SP_Precision {:.4f} | SP_Recall {:.4f} | SP_F1 {:.4f}'.format(
 						global_step // config.checkpoint, epoch, time.time() - eval_start_time,
-						metrics['loss'], metrics['exact_match'], metrics['f1'], metrics['sp_f1']))
+						metrics['loss'], metrics['exact_match'], metrics['f1'], metrics['sp_precision'], metrics['sp_recall'], metrics['sp_f1']))
 				logging('-' * 89)
 
 				eval_start_time = time.time()
@@ -144,7 +147,7 @@ def unflatten_y(y, max_ctx_ques_size, ques_size):
 
 
 @torch.no_grad()
-def evaluate_batch(data_source, model, max_batches, eval_file):
+def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	answer_dict = {}
 	sp_pred, sp_true = [], []
 	total_loss, step_cnt = 0, 0
@@ -152,12 +155,14 @@ def evaluate_batch(data_source, model, max_batches, eval_file):
 	for step, data in enumerate(iter):
 		if step >= max_batches and max_batches > 0: break
 
-		_, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, ques_size, q_type, y1, y2, y1_flat, y2_flat \
+		_, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, ques_size, q_type, is_support, all_mapping, y1, y2, y1_flat, y2_flat \
 			= unpack(data)
 
-		start_logits, end_logits, type_logits, yp1, yp2 \
-			= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, return_yp=True)
-		loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)
+		start_logits, end_logits, type_logits, support_logits, yp1, yp2 \
+			= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping,
+					return_yp=True)
+		loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type) + \
+			   config.sp_lambda * nll(support_logits.view(-1, 2), is_support.view(-1))
 
 		max_ctx_ques_size = context_ques_idxs.size(2)
 		yp1 = unflatten_y(yp1.data.cpu().numpy(), max_ctx_ques_size, ques_size)
@@ -166,10 +171,21 @@ def evaluate_batch(data_source, model, max_batches, eval_file):
 		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(type_logits.data.cpu().numpy(), 1))
 		answer_dict.update(answer_dict_)
 
+		is_support_np = is_support.data.cpu().numpy().flatten()
+		predict_support_np = np.rint(torch.sigmoid(support_logits[:, :, 1]).data.cpu().numpy().flatten()).astype(int)
+		for sp_t, sp_p in zip(is_support_np, predict_support_np):
+			if sp_t == IGNORE_INDEX:
+				continue
+			sp_true.append(sp_t)
+			sp_pred.append(sp_p)
+
 		total_loss += loss.item()
 		step_cnt += 1
 	loss = total_loss / step_cnt
 	metrics = evaluate(eval_file, answer_dict)
 	metrics['loss'] = loss
-	metrics['sp_f1'] = evaluate_sp(sp_true, sp_pred)
+	sp_precision, sp_recall, sp_f1 = evaluate_sp(sp_true, sp_pred)
+	metrics['sp_precision'] = sp_precision
+	metrics['sp_recall'] = sp_recall
+	metrics['sp_f1'] = sp_f1
 	return metrics
