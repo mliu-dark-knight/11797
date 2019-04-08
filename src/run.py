@@ -5,7 +5,6 @@ import time
 
 import ujson as json
 from torch import optim, nn
-from torch.autograd import Variable
 
 from model.hop_model import HOPModel
 from utils.iterator import *
@@ -126,7 +125,8 @@ def train(config):
 				logging(
 					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | SP_Precision {:.4f} | SP_Recall {:.4f} | SP_F1 {:.4f}'.format(
 						global_step // config.checkpoint, epoch, time.time() - eval_start_time,
-						metrics['loss'], metrics['exact_match'], metrics['f1'], metrics['sp_precision'], metrics['sp_recall'], metrics['sp_f1']))
+						metrics['loss'], metrics['exact_match'], metrics['f1'], metrics['sp_precision'],
+						metrics['sp_recall'], metrics['sp_f1']))
 				logging('-' * 89)
 
 				eval_start_time = time.time()
