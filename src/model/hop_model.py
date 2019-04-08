@@ -24,7 +24,7 @@ class HOPModel(nn.Module):
 		cache_mask = outer.new_tensor(np_mask)
 		return Variable(cache_mask, requires_grad=False)
 
-	def forward(self, context_ques_idxs, context_ques_masks, context_ques_segments, return_yp=False):
+	def forward(self, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, return_yp=False):
 		bsz, para_cnt, para_limit = context_ques_idxs.size(0), context_ques_idxs.size(1), context_ques_idxs.size(2)
 		if self.config.debug:
 			bert_output, pooled_output \
@@ -40,7 +40,7 @@ class HOPModel(nn.Module):
 		type_logits = self.linear_type(type_input)
 		span_input = bert_output.view(bsz, para_cnt * para_limit, self.bert_hidden)
 		span_logits = self.linear_span(span_input)
-		span_logits -= (1 - context_ques_masks.float().view(bsz, para_cnt * para_limit).unsqueeze(dim=2)) * BIG_INT
+		span_logits -= (1. - answer_masks.view(bsz, para_cnt * para_limit).unsqueeze(dim=2)) * BIG_INT
 		start_logits, end_logits = span_logits.split(1, dim=2)
 		start_logits, end_logits = start_logits.squeeze(dim=2), end_logits.squeeze(dim=2)
 		if not return_yp:
@@ -49,9 +49,6 @@ class HOPModel(nn.Module):
 		outer = start_logits.unsqueeze(dim=2) + end_logits.unsqueeze(dim=1)
 		outer_mask = self.get_output_mask(outer).unsqueeze(dim=0)
 		outer -= BIG_INT * (1. - outer_mask)
-		ques_mask = context_ques_segments.view(bsz, para_cnt * para_limit)
-		outer -= BIG_INT * (1. - ques_mask.float().unsqueeze(dim=1))
-		outer -= BIG_INT * (1. - ques_mask.float().unsqueeze(dim=2))
 		yp1 = outer.max(dim=2)[0].max(dim=1)[1]
 		yp2 = outer.max(dim=1)[0].max(dim=1)[1]
 		return start_logits, end_logits, type_logits, yp1, yp2

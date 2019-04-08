@@ -31,13 +31,14 @@ def unpack(data):
 	context_ques_idxs = data[CONTEXT_QUES_IDXS_KEY]
 	context_ques_masks = data[CONTEXT_QUES_MASKS_KEY]
 	context_ques_segments = data[CONTEXT_QUES_SEGMENTS_KEY]
+	answer_masks = data[ANSWER_MASKS_KEY]
 	ques_size = data[QUES_SIZE_KEY]
 	q_type = Variable(data[Q_TYPE_KEY])
 	y1 = data[Y1_KEY]
 	y2 = data[Y2_KEY]
 	y1_flat = data[Y1_FLAT_KEY]
 	y2_flat = data[Y2_FLAT_KEY]
-	return full_batch, context_ques_idxs, context_ques_masks, context_ques_segments, ques_size, q_type, y1, y2, y1_flat, y2_flat
+	return full_batch, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, ques_size, q_type, y1, y2, y1_flat, y2_flat
 
 
 def build_iterator(config, bucket, batch_size, shuffle):
@@ -89,10 +90,11 @@ def train(config):
 
 	for epoch in range(config.epoch):
 		for data in build_iterator(config, train_datapoints, config.batch_size, not config.debug):
-			_, context_ques_idxs, context_ques_masks, context_ques_segments, ques_size, q_type, y1, y2, y1_flat, y2_flat \
+			_, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, ques_size, q_type, y1, y2, y1_flat, y2_flat \
 				= unpack(data)
 
-			start_logits, end_logits, type_logits = model(context_ques_idxs, context_ques_masks, context_ques_segments)
+			start_logits, end_logits, type_logits \
+				= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks)
 			loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)
 
 			optimizer.zero_grad()
@@ -150,11 +152,11 @@ def evaluate_batch(data_source, model, max_batches, eval_file):
 	for step, data in enumerate(iter):
 		if step >= max_batches and max_batches > 0: break
 
-		_, context_ques_idxs, context_ques_masks, context_ques_segments, ques_size, q_type, y1, y2, y1_flat, y2_flat \
+		_, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, ques_size, q_type, y1, y2, y1_flat, y2_flat \
 			= unpack(data)
 
-		start_logits, end_logits, type_logits, yp1, yp2 = model(context_ques_idxs, context_ques_masks,
-																context_ques_segments, return_yp=True)
+		start_logits, end_logits, type_logits, yp1, yp2 \
+			= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, return_yp=True)
 		loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)
 
 		max_ctx_ques_size = context_ques_idxs.size(2)
