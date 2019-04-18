@@ -157,7 +157,7 @@ def _process_article(article, config):
     ques_chars = [list(token) for token in ques_tokens]
 
     example = {'context_tokens': context_tokens,'context_chars': context_chars, 'ques_tokens': ques_tokens, 'ques_chars': ques_chars, 'y1s': [best_indices[0]], 'y2s': [best_indices[1]], 'id': article['_id'], 'start_end_facts': start_end_facts}
-    eval_example = {'context': text_context, 'question': prepro_sent((article['question'])), 'spans': flat_offsets, 'answer': [answer], 'id': article['_id'], 'sent2title_ids': sent2title_ids}
+    eval_example = {'context': text_context, 'spans': flat_offsets, 'answer': [answer], 'id': article['_id'], 'sent2title_ids': sent2title_ids}
     return example, eval_example
 
 def process_file(filename, config, word_counter=None, char_counter=None):
