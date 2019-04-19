@@ -272,7 +272,7 @@ def build_features(examples, data_type, out_file):
 			Y2_KEY: y2,
 			ID_KEY: example[ID_KEY],
 			START_END_FACTS_KEY: example[START_END_FACTS_KEY],
-			'has_sp_fact': [reduce(lambda a, b: a or b, [is_sp for _, _, is_sp in para_facts], initial=False)
+			'has_sp_fact': [reduce(lambda a, b: a or b, [is_sp for _, _, is_sp in para_facts], False)
 							for para_facts in example[START_END_FACTS_KEY]]})
 	print("Build {} / {} instances of features in total".format(total, total_))
 	# pickle.dump(datapoints, open(out_file, 'wb'), protocol=-1)
