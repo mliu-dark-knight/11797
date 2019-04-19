@@ -1,5 +1,6 @@
 import os
 import random
+from functools import reduce
 
 import spacy
 import torch
@@ -270,7 +271,9 @@ def build_features(examples, data_type, out_file):
 			Y1_KEY: y1,
 			Y2_KEY: y2,
 			ID_KEY: example[ID_KEY],
-			START_END_FACTS_KEY: example[START_END_FACTS_KEY]})
+			START_END_FACTS_KEY: example[START_END_FACTS_KEY],
+			'has_sp_fact': [reduce(lambda a, b: a or b, [is_sp for _, _, is_sp in para_facts], initial=False)
+							for para_facts in examples[START_END_FACTS_KEY]]})
 	print("Build {} / {} instances of features in total".format(total, total_))
 	# pickle.dump(datapoints, open(out_file, 'wb'), protocol=-1)
 	torch.save(datapoints, out_file)

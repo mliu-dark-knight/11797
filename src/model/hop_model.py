@@ -25,7 +25,8 @@ class HOPModel(nn.Module):
 		cache_mask = outer.new_tensor(np_mask)
 		return Variable(cache_mask, requires_grad=False)
 
-	def forward(self, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping, return_yp=False):
+	def forward(self, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping,
+				stage='reason', return_yp=False):
 		bsz, para_cnt, token_cnt, sent_cnt \
 			= context_ques_idxs.size(0), context_ques_idxs.size(1), context_ques_idxs.size(2), all_mapping.size(2)
 		if self.config.debug:
@@ -42,6 +43,9 @@ class HOPModel(nn.Module):
 		one_logits = self.linear_support(support_input)
 		zero_logits = torch.zeros_like(one_logits)
 		support_logits = torch.cat((zero_logits, one_logits), dim=2).view(bsz, para_cnt, sent_cnt, 2)
+		if stage == 'locate':
+			return support_logits
+		
 		type_input = torch.max(pooled_output.view(bsz, para_cnt, self.bert_hidden), dim=1)[0]
 		type_logits = self.linear_type(type_input)
 		span_input = bert_output.view(bsz, para_cnt * token_cnt, self.bert_hidden)
@@ -50,11 +54,11 @@ class HOPModel(nn.Module):
 		start_logits, end_logits = span_logits.split(1, dim=2)
 		start_logits, end_logits = start_logits.squeeze(dim=2), end_logits.squeeze(dim=2)
 		if not return_yp:
-			return start_logits, end_logits, type_logits, support_logits
+			return start_logits, end_logits, type_logits
 
 		outer = start_logits.unsqueeze(dim=2) + end_logits.unsqueeze(dim=1)
 		outer_mask = self.get_output_mask(outer).unsqueeze(dim=0)
 		outer -= BIG_INT * (1. - outer_mask)
 		yp1 = outer.max(dim=2)[0].max(dim=1)[1]
 		yp2 = outer.max(dim=1)[0].max(dim=1)[1]
-		return start_logits, end_logits, type_logits, support_logits, yp1, yp2
+		return start_logits, end_logits, type_logits, yp1, yp2

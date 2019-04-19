@@ -21,6 +21,7 @@ def build_tensor(batch, cuda):
 			max_sent_cnt = max(max_sent_cnt, len(data[START_END_FACTS_KEY][para_i]))
 
 	context_ques_idxs = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(UNK_IDX)
+	compact_context_ques_idxs = torch.LongTensor(bsz, 1, max_ctx_ques_size)
 	context_ques_masks = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(0)
 	context_ques_segments = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(1)
 	all_mapping = torch.zeros(bsz, max_para_cnt, max_sent_cnt, max_ctx_ques_size)
