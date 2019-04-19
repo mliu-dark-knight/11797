@@ -95,9 +95,11 @@ def train(config):
 				= unpack(data)
 
 			start_logits, end_logits, type_logits, support_logits \
-				= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping)
-			loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type) + \
-				   config.sp_lambda * nll(support_logits.view(-1, 2), is_support.view(-1))
+				= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping,
+				        task='reason')
+			loss = config.ans_lambda * (
+					nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)) + \
+			       config.sp_lambda * nll(support_logits.view(-1, 2), is_support.view(-1))
 
 			optimizer.zero_grad()
 			loss.backward()
@@ -160,9 +162,10 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 
 		start_logits, end_logits, type_logits, support_logits, yp1, yp2 \
 			= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping,
-					return_yp=True)
-		loss = nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type) + \
-			   config.sp_lambda * nll(support_logits.view(-1, 2), is_support.view(-1))
+			        task='reason', return_yp=True)
+		loss = config.ans_lambda * (
+				nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)) + \
+		       config.sp_lambda * nll(support_logits.view(-1, 2), is_support.view(-1))
 
 		max_ctx_ques_size = context_ques_idxs.size(2)
 		yp1 = unflatten_y(yp1.data.cpu().numpy(), max_ctx_ques_size, ques_size)
@@ -172,7 +175,8 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		answer_dict.update(answer_dict_)
 
 		is_support_np = is_support.data.cpu().numpy().flatten()
-		predict_support_np = np.rint(torch.sigmoid(support_logits[:, :, 1]).data.cpu().numpy().flatten()).astype(int)
+		predict_support_np = np.rint(torch.sigmoid(support_logits[:, :, :, 1]).data.cpu().numpy().flatten()).astype(int)
+		assert len(is_support_np) == len(predict_support_np)
 		for sp_t, sp_p in zip(is_support_np, predict_support_np):
 			if sp_t == IGNORE_INDEX:
 				continue
