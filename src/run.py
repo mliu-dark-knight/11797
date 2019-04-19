@@ -209,18 +209,19 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 
 		has_support_logits, is_support_logits \
 			= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
-		loss_locate = nll(is_support_logits.view(-1, 2), is_support.view(-1)) + \
-					  nll(has_support_logits, has_support.view(-1))
+		loss_locate = nll(has_support_logits, has_support.view(-1))
+		# loss_locate = nll(is_support_logits.view(-1, 2), is_support.view(-1)) + \
+		# 			  nll(has_support_logits, has_support.view(-1))
 		start_logits, end_logits, type_logits, compact_is_support_logits \
 			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
 					compact_answer_masks, compact_all_mapping, task='reason')
-		loss_locate += nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))
+		# loss_locate += nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))
 		loss_reason = nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)
 		loss = config.ans_lambda * loss_reason + config.sp_lambda * loss_locate
 
 		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
 		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
-			= build_reasoner_input(full_batch, has_support_logits, not config.debug)
+			= build_reasoner_input(full_batch, has_support_logits.data.cpu().numpy(), not config.debug)
 		start_logits, end_logits, type_logits, _, yp1, yp2 \
 			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
 					compact_answer_masks, compact_all_mapping, task='reason', return_yp=True)
