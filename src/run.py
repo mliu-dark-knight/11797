@@ -28,18 +28,32 @@ def create_exp_dir(path, scripts_to_save=None):
 def unpack(data):
 	full_batch = data[FULL_BATCH_KEY]
 	context_ques_idxs = data[CONTEXT_QUES_IDXS_KEY]
+	compact_context_ques_idxs = data[COMPACT_CONTEXT_QUES_IDXS_KEY]
 	context_ques_masks = data[CONTEXT_QUES_MASKS_KEY]
+	compact_context_ques_masks = data[COMPACT_CONTEXT_QUES_MASKS_KEY]
 	context_ques_segments = data[CONTEXT_QUES_SEGMENTS_KEY]
-	answer_masks = data[ANSWER_MASKS_KEY]
-	ques_size = data[QUES_SIZE_KEY]
+	compact_context_ques_segments = data[COMPACT_CONTEXT_QUES_SEGMENTS_KEY]
+	compact_answer_masks = data[COMPACT_ANSWER_MASKS_KEY]
 	q_type = data[Q_TYPE_KEY]
 	is_support = data[IS_SUPPORT_KEY]
+	compact_is_support = data[COMPACT_IS_SUPPORT_KEY]
+	has_support = data[HAS_SP_KEY]
 	all_mapping = data[ALL_MAPPING_KEY]
+	compact_all_mapping = data[COMPACT_ALL_MAPPING_KEY]
 	y1 = data[Y1_KEY]
 	y2 = data[Y2_KEY]
-	y1_flat = data[Y1_FLAT_KEY]
-	y2_flat = data[Y2_FLAT_KEY]
-	return full_batch, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, ques_size, q_type, is_support, all_mapping, y1, y2, y1_flat, y2_flat
+	compact_y1 = data[COMPACT_Y1_KEY]
+	compact_y2 = data[COMPACT_Y2_KEY]
+	compact_to_orig_mapping = data[COMPACT_TO_ORIG_MAPPING_KEY]
+	return full_batch, \
+		   context_ques_idxs, compact_context_ques_idxs, \
+		   context_ques_masks, compact_context_ques_masks, \
+		   context_ques_segments, compact_context_ques_segments, \
+		   compact_answer_masks, \
+		   is_support, compact_is_support, has_support, \
+		   all_mapping, compact_all_mapping, \
+		   compact_y1, compact_y2, q_type, y1, y2, \
+		   compact_to_orig_mapping
 
 
 def build_iterator(config, bucket, batch_size, shuffle):
@@ -91,15 +105,27 @@ def train(config):
 
 	for epoch in range(config.epoch):
 		for data in build_iterator(config, train_datapoints, config.batch_size, not config.debug):
-			_, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, ques_size, q_type, is_support, all_mapping, y1, y2, y1_flat, y2_flat \
+			full_batch, \
+			context_ques_idxs, compact_context_ques_idxs, \
+			context_ques_masks, compact_context_ques_masks, \
+			context_ques_segments, compact_context_ques_segments, \
+			compact_answer_masks, \
+			is_support, compact_is_support, has_support, \
+			all_mapping, compact_all_mapping, \
+			compact_y1, compact_y2, q_type, y1, y2, \
+			compact_to_orig_mapping \
 				= unpack(data)
 
-			start_logits, end_logits, type_logits, support_logits \
-				= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping,
-				        task='reason')
-			loss = config.ans_lambda * (
-					nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)) + \
-			       config.sp_lambda * nll(support_logits.view(-1, 2), is_support.view(-1))
+			has_support_logits, is_support_logits \
+				= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
+			loss_locate = nll(is_support_logits.view(-1, 2), is_support.view(-1)) + \
+						  nll(has_support_logits, has_support.view(-1))
+			start_logits, end_logits, type_logits, compact_is_support_logits \
+				= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+						compact_answer_masks, compact_all_mapping, task='reason')
+			loss_locate += nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))
+			loss_reason = nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)
+			loss = config.ans_lambda * loss_reason + config.sp_lambda * loss_locate
 
 			optimizer.zero_grad()
 			loss.backward()
@@ -141,11 +167,24 @@ def train(config):
 	logging('best_dev_F1 {}'.format(best_dev_F1))
 
 
-def unflatten_y(y, max_ctx_ques_size, ques_size):
-	y1 = (y / max_ctx_ques_size).astype(int)
-	y2 = y % max_ctx_ques_size
-	y2 = y2 - ques_size - 2
-	return np.stack((y1, y2), axis=1)
+def build_reasoner_input(full_batch, has_support_logits, cuda):
+	para_idxs = []
+	sorted_para_idxs = list(np.argsort(-has_support_logits, axis=1))
+	for data_i, data in enumerate(full_batch):
+		para_idx = []
+		cur_ctx_ques_size = 2 + len(data[QUES_IDXS_KEY])
+		for para_i in sorted_para_idxs[data_i]:
+			para_idx.append(para_i)
+			cur_ctx_ques_size += len(data[CONTEXT_IDXS_KEY][para_i])
+			if cur_ctx_ques_size >= BERT_LIMIT:
+				break
+		para_idxs.append(para_idx)
+	return filter_para(full_batch, para_idxs, cuda)
+
+
+def map_compact_to_orig_y(yp, compact_to_orig_mapping):
+	bsz = yp.shape[0]
+	return compact_to_orig_mapping[np.arange(bsz), yp]
 
 
 @torch.no_grad()
@@ -157,25 +196,43 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	for step, data in enumerate(iter):
 		if step >= max_batches and max_batches > 0: break
 
-		_, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, ques_size, q_type, is_support, all_mapping, y1, y2, y1_flat, y2_flat \
+		full_batch, \
+		context_ques_idxs, compact_context_ques_idxs, \
+		context_ques_masks, compact_context_ques_masks, \
+		context_ques_segments, compact_context_ques_segments, \
+		compact_answer_masks, \
+		is_support, compact_is_support, has_support, \
+		all_mapping, compact_all_mapping, \
+		compact_y1, compact_y2, q_type, y1, y2, \
+		compact_to_orig_mapping \
 			= unpack(data)
 
-		start_logits, end_logits, type_logits, support_logits, yp1, yp2 \
-			= model(context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping,
-			        task='reason', return_yp=True)
-		loss = config.ans_lambda * (
-				nll(start_logits, y1_flat) + nll(end_logits, y2_flat) + nll(type_logits, q_type)) + \
-		       config.sp_lambda * nll(support_logits.view(-1, 2), is_support.view(-1))
+		has_support_logits, is_support_logits \
+			= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
+		loss_locate = nll(is_support_logits.view(-1, 2), is_support.view(-1)) + \
+					  nll(has_support_logits, has_support.view(-1))
+		start_logits, end_logits, type_logits, compact_is_support_logits \
+			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+					compact_answer_masks, compact_all_mapping, task='reason')
+		loss_locate += nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))
+		loss_reason = nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)
+		loss = config.ans_lambda * loss_reason + config.sp_lambda * loss_locate
 
-		max_ctx_ques_size = context_ques_idxs.size(2)
-		yp1 = unflatten_y(yp1.data.cpu().numpy(), max_ctx_ques_size, ques_size)
-		yp2 = unflatten_y(yp2.data.cpu().numpy(), max_ctx_ques_size, ques_size)
+		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
+		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
+			= build_reasoner_input(full_batch, has_support_logits, not config.debug)
+		start_logits, end_logits, type_logits, _, yp1, yp2 \
+			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+					compact_answer_masks, compact_all_mapping, task='reason', return_yp=True)
+		yp1 = map_compact_to_orig_y(yp1.data.cpu().numpy(), compact_to_orig_mapping)
+		yp2 = map_compact_to_orig_y(yp2.data.cpu().numpy(), compact_to_orig_mapping)
 
 		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(type_logits.data.cpu().numpy(), 1))
 		answer_dict.update(answer_dict_)
 
 		is_support_np = is_support.data.cpu().numpy().flatten()
-		predict_support_np = np.rint(torch.sigmoid(support_logits[:, :, :, 1]).data.cpu().numpy().flatten()).astype(int)
+		predict_support_np \
+			= np.rint(torch.sigmoid(is_support_logits[:, :, :, 1]).data.cpu().numpy().flatten()).astype(int)
 		assert len(is_support_np) == len(predict_support_np)
 		for sp_t, sp_p in zip(is_support_np, predict_support_np):
 			if sp_t == IGNORE_INDEX:
