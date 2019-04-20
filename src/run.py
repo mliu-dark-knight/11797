@@ -135,7 +135,8 @@ def train(config):
 						 config.aggregate_step
 			loss_ans = (nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)) / \
 					   config.aggregate_step
-			loss = config.has_sp_lambda * loss_has_sp + config.is_sp_lambda * loss_is_sp + config.ans_lambda * loss_ans
+			# loss = config.has_sp_lambda * loss_has_sp + config.is_sp_lambda * loss_is_sp + config.ans_lambda * loss_ans
+			loss = config.has_sp_lambda * loss_has_sp + config.ans_lambda * loss_ans
 			loss.backward()
 			total_loss += loss.item()
 
@@ -232,7 +233,8 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		loss_is_sp = nll(is_support_logits.view(-1, 2), is_support.view(-1)) + \
 					 nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))
 		loss_ans = nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)
-		loss = config.has_sp_lambda * loss_has_sp + config.is_sp_lambda * loss_is_sp + config.ans_lambda * loss_ans
+		# loss = config.has_sp_lambda * loss_has_sp + config.is_sp_lambda * loss_is_sp + config.ans_lambda * loss_ans
+		loss = config.has_sp_lambda * loss_has_sp + config.ans_lambda * loss_ans
 		total_loss += loss.item()
 		para_idxs = select_reasoner_para(full_batch, has_support_logits.data.cpu().numpy(),
 										 ground_truth=config.has_sp_lambda <= 0.0)
