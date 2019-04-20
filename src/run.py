@@ -167,18 +167,21 @@ def train(config):
 	logging('best_dev_F1 {}'.format(best_dev_F1))
 
 
-def build_reasoner_input(full_batch, has_support_logits, cuda):
-	para_idxs = []
-	sorted_para_idxs = list(np.argsort(-has_support_logits, axis=1))
-	for data_i, data in enumerate(full_batch):
-		para_idx = []
-		cur_ctx_ques_size = 2 + len(data[QUES_IDXS_KEY])
-		for para_i in sorted_para_idxs[data_i]:
-			para_idx.append(para_i)
-			cur_ctx_ques_size += len(data[CONTEXT_IDXS_KEY][para_i])
-			if cur_ctx_ques_size >= BERT_LIMIT:
-				break
-		para_idxs.append(para_idx)
+def build_reasoner_input(full_batch, has_support_logits, cuda, ground_truth=False):
+	if ground_truth:
+		para_idxs = [[i for i, has_sp_fact in enumerate(data[HAS_SP_KEY]) if has_sp_fact] for data in full_batch]
+	else:
+		para_idxs = []
+		sorted_para_idxs = list(np.argsort(-has_support_logits, axis=1))
+		for data_i, data in enumerate(full_batch):
+			para_idx = []
+			cur_ctx_ques_size = 2 + len(data[QUES_IDXS_KEY])
+			for para_i in sorted_para_idxs[data_i]:
+				para_idx.append(para_i)
+				cur_ctx_ques_size += len(data[CONTEXT_IDXS_KEY][para_i])
+				if cur_ctx_ques_size >= BERT_LIMIT:
+					break
+			para_idxs.append(para_idx)
 	return filter_para(full_batch, para_idxs, cuda)
 
 
