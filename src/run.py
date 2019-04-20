@@ -10,7 +10,6 @@ from model.hop_model import HOPModel
 from utils.iterator import *
 
 nll = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
-nll_sum = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX, reduction='sum')
 
 
 def create_exp_dir(path, scripts_to_save=None):
@@ -103,6 +102,7 @@ def train(config):
 	start_time = time.time()
 	eval_start_time = time.time()
 	model.train()
+	optimizer.zero_grad()
 
 	for epoch in range(config.epoch):
 		for data in build_iterator(config, train_datapoints, config.batch_size, not config.debug):
@@ -117,47 +117,31 @@ def train(config):
 			compact_to_orig_mapping \
 				= unpack(data)
 
-			para_cnt, sent_cnt = context_ques_idxs.size(1), all_mapping.size(2)
-			for mini_i in range(int(config.batch_size / config.mini_batch_size)):
-				has_support_logits, is_support_logits \
-					= model(context_ques_idxs[mini_i * config.mini_batch_size: (mini_i + 1) * config.mini_batch_size],
-							context_ques_masks[mini_i * config.mini_batch_size: (mini_i + 1) * config.mini_batch_size],
-							context_ques_segments[mini_i * config.mini_batch_size:
-												  (mini_i + 1) * config.mini_batch_size],
-							None, all_mapping[mini_i * config.mini_batch_size: (mini_i + 1) * config.mini_batch_size],
-							task='locate')
-
-				loss = config.sp_lambda * \
-					   (nll_sum(is_support_logits.view(-1, 2),
-								is_support[mini_i * config.mini_batch_size:
-										   (mini_i + 1) * config.mini_batch_size].view(-1)) / (para_cnt * sent_cnt) +
-						nll_sum(has_support_logits,
-								has_support[mini_i * config.mini_batch_size:
-											(mini_i + 1) * config.mini_batch_size].view(-1)) / para_cnt) / \
-					   config.batch_size
-				loss.backward()
-				total_loss += loss.item()
-
-			optimizer.zero_grad()
-			optimizer.step()
+			has_support_logits, is_support_logits \
+				= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
 
 			start_logits, end_logits, type_logits, compact_is_support_logits \
 				= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
 						compact_answer_masks, compact_all_mapping, task='reason')
-			loss = config.sp_lambda * nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1)) + \
-				   config.ans_lambda * (nll(start_logits, compact_y1) +
-										nll(end_logits, compact_y2) +
-										nll(type_logits, q_type))
+
+			loss_sp = (nll(is_support_logits.view(-1, 2), is_support.view(-1)) +
+					   nll(has_support_logits, has_support.view(-1)) +
+					   nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))) / \
+					  config.aggregate_step
+			loss_ans = (nll(start_logits, compact_y1) +
+						nll(end_logits, compact_y2) +
+						nll(type_logits, q_type)) / config.aggregate_step
+			loss = config.sp_lambda * loss_sp + config.ans_lambda * loss_ans
 			loss.backward()
 			total_loss += loss.item()
 
-			optimizer.zero_grad()
-			optimizer.step()
-
+			if (global_step + 1) & config.aggregate_step == 0:
+				optimizer.step()
+				optimizer.zero_grad()
 			global_step += 1
 
 			if global_step % config.period == 0:
-				cur_loss = total_loss / config.period
+				cur_loss = total_loss * config.aggregate_step / config.period
 				elapsed = time.time() - start_time
 				logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f}'.format(
 					epoch, global_step, lr, elapsed * 1000 / config.period, cur_loss))
@@ -232,36 +216,20 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		compact_to_orig_mapping \
 			= unpack(data)
 
-		predict_support_np = np.zeros(is_support.size()[:3], dtype=int)
-
-		para_cnt, sent_cnt = context_ques_idxs.size(1), all_mapping.size(2)
-		for mini_i in range(int(config.batch_size / config.mini_batch_size)):
-			has_support_logits, is_support_logits \
-				= model(context_ques_idxs[mini_i * config.mini_batch_size: (mini_i + 1) * config.mini_batch_size],
-						context_ques_masks[mini_i * config.mini_batch_size: (mini_i + 1) * config.mini_batch_size],
-						context_ques_segments[mini_i * config.mini_batch_size:
-											  (mini_i + 1) * config.mini_batch_size],
-						None, all_mapping[mini_i * config.mini_batch_size: (mini_i + 1) * config.mini_batch_size],
-						task='locate')
-			predict_support_np[mini_i * config.mini_batch_size: (mini_i + 1) * config.mini_batch_size, :, :] \
-				= np.rint(torch.sigmoid(is_support_logits[:, :, :, 1]).data.cpu().numpy()).astype(int)
-			loss = config.sp_lambda * \
-				   (nll_sum(is_support_logits.view(-1, 2),
-							is_support[mini_i * config.mini_batch_size:
-									   (mini_i + 1) * config.mini_batch_size].view(-1)) / (para_cnt * sent_cnt) +
-					nll_sum(has_support_logits,
-							has_support[mini_i * config.mini_batch_size:
-										(mini_i + 1) * config.mini_batch_size].view(-1)) / para_cnt) / \
-				   config.batch_size
-			total_loss += loss.item()
+		has_support_logits, is_support_logits \
+			= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
 
 		start_logits, end_logits, type_logits, compact_is_support_logits \
 			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
 					compact_answer_masks, compact_all_mapping, task='reason')
-		loss = config.sp_lambda * nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1)) + \
-			   config.ans_lambda * (nll(start_logits, compact_y1) +
-									nll(end_logits, compact_y2) +
-									nll(type_logits, q_type))
+
+		loss_sp = (nll(is_support_logits.view(-1, 2), is_support.view(-1)) +
+				   nll(has_support_logits, has_support.view(-1)) +
+				   nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1)))
+		loss_ans = (nll(start_logits, compact_y1) +
+					nll(end_logits, compact_y2) +
+					nll(type_logits, q_type))
+		loss = config.sp_lambda * loss_sp + config.ans_lambda * loss_ans
 		total_loss += loss.item()
 
 		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
@@ -277,7 +245,8 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(type_logits.data.cpu().numpy(), 1))
 		answer_dict.update(answer_dict_)
 
-		predict_support_np = predict_support_np.flatten()
+		predict_support_np \
+			= np.rint(torch.sigmoid(is_support_logits[:, :, :, 1]).data.cpu().numpy()).astype(int).flatten()
 		is_support_np = is_support.data.cpu().numpy().flatten()
 		assert len(is_support_np) == len(predict_support_np)
 		for sp_t, sp_p in zip(is_support_np, predict_support_np):
