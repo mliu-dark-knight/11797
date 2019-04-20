@@ -10,13 +10,13 @@ def filter_para(batch, para_idxs, cuda):
 	bsz = len(batch)
 	compact_ctx_ques_sizes = []
 	compact_max_sent_cnt = 0
-	for data in batch:
+	for data_i, data in enumerate(batch):
 		assert len(data[QUES_IDXS_KEY]) <= QUES_LIMIT
 		cur_compact_ctx_ques_size = len(data[QUES_IDXS_KEY]) + 3 + \
-									sum([len(data[CONTEXT_IDXS_KEY][i]) for i in para_idxs[-1]])
+									sum([len(data[CONTEXT_IDXS_KEY][i]) for i in para_idxs[data_i]])
 		compact_ctx_ques_sizes.append(cur_compact_ctx_ques_size)
 		compact_max_sent_cnt = max(compact_max_sent_cnt,
-								   sum([len(data[START_END_FACTS_KEY][i]) for i in para_idxs[-1]]))
+								   sum([len(data[START_END_FACTS_KEY][i]) for i in para_idxs[data_i]]))
 	compact_max_ctx_ques_size = max(compact_ctx_ques_sizes)
 	assert compact_max_ctx_ques_size <= BERT_LIMIT
 
@@ -72,15 +72,15 @@ def build_tensor(batch, cuda):
 	# max number of sentences per paragraph
 	max_sent_cnt = 0
 	compact_max_sent_cnt = 0
-	for data in batch:
+	for data_i, data in enumerate(batch):
 		assert len(data[QUES_IDXS_KEY]) <= QUES_LIMIT
 		max_para_cnt = max(max_para_cnt, len(data[CONTEXT_IDXS_KEY]))
 		para_idxs.append([i for i, has_sp_fact in enumerate(data[HAS_SP_KEY]) if has_sp_fact])
 		cur_compact_ctx_ques_size = len(data[QUES_IDXS_KEY]) + 3 + \
-									sum([len(data[CONTEXT_IDXS_KEY][i]) for i in para_idxs[-1]])
+									sum([len(data[CONTEXT_IDXS_KEY][i]) for i in para_idxs[data_i]])
 		compact_ctx_ques_sizes.append(cur_compact_ctx_ques_size)
 		compact_max_sent_cnt = max(compact_max_sent_cnt,
-								   sum([len(data[START_END_FACTS_KEY][i]) for i in para_idxs[-1]]))
+								   sum([len(data[START_END_FACTS_KEY][i]) for i in para_idxs[data_i]]))
 		for para_i, para in enumerate(data[CONTEXT_IDXS_KEY]):
 			assert len(para) <= PARA_LIMIT
 			max_ctx_ques_size = max(max_ctx_ques_size, 3 + len(para) + len(data[QUES_IDXS_KEY]))
