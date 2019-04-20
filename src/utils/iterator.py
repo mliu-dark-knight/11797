@@ -1,4 +1,5 @@
 import random
+from copy import deepcopy
 
 import numpy as np
 
@@ -75,17 +76,33 @@ def build_compact_tensor(batch, cuda, para_idxs=None):
 		   compact_answer_masks, compact_is_support, compact_all_mapping, compact_to_orig_mapping
 
 
-def filter_para(batch, para_idxs, cuda):
-	compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, compact_answer_masks, compact_is_support, compact_all_mapping, compact_to_orig_mapping \
+def build_compact_tensor_no_support(batch, para_idxs, cuda):
+	compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, compact_answer_masks, _, compact_all_mapping, compact_to_orig_mapping \
 		= build_compact_tensor(batch, cuda, para_idxs=para_idxs)
 	return compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
 		   compact_answer_masks, compact_all_mapping, compact_to_orig_mapping
 
 
+def get_mixed_para_idxs(batch):
+	pure_para_idxs = [[i for i, has_sp_fact in enumerate(data[HAS_SP_KEY]) if has_sp_fact] for data in batch]
+	left_out_para_idxs = [[i for i, has_sp_fact in enumerate(data[HAS_SP_KEY]) if not has_sp_fact] for data in batch]
+	mixed_para_idxs = []
+	for pure_para_idx, left_out_para_idx, data in zip(pure_para_idxs, left_out_para_idxs, batch):
+		ctx_ques_size = 3 + len(data[QUES_IDXS_KEY]) + sum([len(data[CONTEXT_IDXS_KEY][i]) for i in pure_para_idx])
+		mixed_para_idx = deepcopy(pure_para_idx)
+		for i in left_out_para_idx:
+			if ctx_ques_size + len(data[CONTEXT_IDXS_KEY][i]) <= BERT_LIMIT:
+				mixed_para_idx.append(i)
+				ctx_ques_size += len(data[CONTEXT_IDXS_KEY][i])
+		random.shuffle(mixed_para_idx)
+		mixed_para_idxs.append(mixed_para_idx)
+	return mixed_para_idxs
+
+
 def build_tensor(batch, cuda):
 	bsz = len(batch)
 	# indices of all paragraphs that are fed into reasoner
-	para_idxs = [[i for i, has_sp_fact in enumerate(data[HAS_SP_KEY]) if has_sp_fact] for data in batch]
+	para_idxs = get_mixed_para_idxs(batch)
 	max_ctx_ques_size = 0
 	max_para_cnt = 0
 	# max number of sentences per paragraph

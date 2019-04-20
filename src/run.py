@@ -122,22 +122,20 @@ def train(config):
 			compact_to_orig_mapping \
 				= unpack(data)
 
-			# has_support_logits, is_support_logits \
-			# 	= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
+			has_support_logits, is_support_logits \
+				= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
 
 			start_logits, end_logits, type_logits, compact_is_support_logits \
 				= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
 						compact_answer_masks, compact_all_mapping, task='reason')
-			#
-			# loss_sp = (nll(is_support_logits.view(-1, 2), is_support.view(-1)) +
-			# 		   nll(has_support_logits, has_support.view(-1)) +
-			# 		   nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))) / \
-			# 		  config.aggregate_step
-			loss_ans = (nll(start_logits, compact_y1) +
-						nll(end_logits, compact_y2) +
-						nll(type_logits, q_type)) / config.aggregate_step
-			# loss = config.sp_lambda * loss_sp + config.ans_lambda * loss_ans
-			loss = config.ans_lambda * loss_ans
+
+			loss_has_sp = nll(has_support_logits, has_support.view(-1)) / config.aggregate_step
+			loss_is_sp = (nll(is_support_logits.view(-1, 2), is_support.view(-1)) +
+						  nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))) / \
+						 config.aggregate_step
+			loss_ans = (nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)) / \
+					   config.aggregate_step
+			loss = config.has_sp_lambda * loss_has_sp + config.is_sp_lambda * loss_is_sp + config.ans_lambda * loss_ans
 			loss.backward()
 			total_loss += loss.item()
 
@@ -163,10 +161,11 @@ def train(config):
 
 				logging('-' * 89)
 				logging(
-					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | SP_Precision {:.4f} | SP_Recall {:.4f} | SP_F1 {:.4f}'.format(
+					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | _HAS_SP_Precision {:.4f} | HAS_SP_Recall {:.4f} | HAS_SP_F1 {:.4f} | IS_SP_F1 {:.4f}'.format(
 						global_step // config.checkpoint, epoch, time.time() - eval_start_time,
-						metrics['loss'], metrics['exact_match'], metrics['f1'], metrics['sp_precision'],
-						metrics['sp_recall'], metrics['sp_f1']))
+						metrics['loss'], metrics['exact_match'], metrics['f1'],
+						metrics['has_sp_precision'], metrics['has_sp_recall'], metrics['has_sp_f1'],
+						metrics['is_sp_f1']))
 				logging('-' * 89)
 
 				eval_start_time = time.time()
@@ -179,22 +178,21 @@ def train(config):
 	logging('best_dev_F1 {}'.format(best_dev_F1))
 
 
-def build_reasoner_input(full_batch, has_support_logits, cuda, ground_truth=False):
+def select_reasoner_para(full_batch, has_support_logits, ground_truth=False):
 	if ground_truth:
-		para_idxs = [[i for i, has_sp_fact in enumerate(data[HAS_SP_KEY]) if has_sp_fact] for data in full_batch]
+		para_idxs = get_mixed_para_idxs(full_batch)
 	else:
 		para_idxs = []
 		sorted_para_idxs = list(np.argsort(-has_support_logits, axis=1))
 		for data_i, data in enumerate(full_batch):
 			para_idx = []
-			cur_ctx_ques_size = 2 + len(data[QUES_IDXS_KEY])
+			cur_ctx_ques_size = 3 + len(data[QUES_IDXS_KEY])
 			for para_i in sorted_para_idxs[data_i]:
-				para_idx.append(para_i)
-				cur_ctx_ques_size += len(data[CONTEXT_IDXS_KEY][para_i])
-				if cur_ctx_ques_size >= BERT_LIMIT:
-					break
+				if cur_ctx_ques_size + len(data[CONTEXT_IDXS_KEY][para_i]) <= BERT_LIMIT:
+					para_idx.append(para_i)
+					cur_ctx_ques_size += len(data[CONTEXT_IDXS_KEY][para_i])
 			para_idxs.append(para_idx)
-	return filter_para(full_batch, para_idxs, cuda)
+	return para_idxs
 
 
 def map_compact_to_orig_y(yp, compact_to_orig_mapping):
@@ -205,7 +203,8 @@ def map_compact_to_orig_y(yp, compact_to_orig_mapping):
 @torch.no_grad()
 def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	answer_dict = {}
-	sp_pred, sp_true = [], []
+	is_sp_pred, is_sp_true = [], []
+	has_sp_pred, has_sp_true = [], []
 	total_loss, step_cnt = 0, 0
 	iter = data_source
 	for step, data in enumerate(iter):
@@ -229,19 +228,17 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
 					compact_answer_masks, compact_all_mapping, task='reason')
 
-		# loss_sp = (nll(is_support_logits.view(-1, 2), is_support.view(-1)) +
-		# 		   nll(has_support_logits, has_support.view(-1)) +
-		# 		   nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1)))
-		loss_ans = (nll(start_logits, compact_y1) +
-					nll(end_logits, compact_y2) +
-					nll(type_logits, q_type))
-		# loss = config.sp_lambda * loss_sp + config.ans_lambda * loss_ans
-		loss = config.ans_lambda * loss_ans
+		loss_has_sp = nll(has_support_logits, has_support.view(-1))
+		loss_is_sp = nll(is_support_logits.view(-1, 2), is_support.view(-1)) + \
+					 nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))
+		loss_ans = nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)
+		loss = config.has_sp_lambda * loss_has_sp + config.is_sp_lambda * loss_is_sp + config.ans_lambda * loss_ans
 		total_loss += loss.item()
+		para_idxs = select_reasoner_para(full_batch, has_support_logits.data.cpu().numpy(),
+										 ground_truth=config.has_sp_lambda <= 0.0)
 		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
 		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
-			= build_reasoner_input(full_batch, has_support_logits.data.cpu().numpy(), not config.debug,
-								   ground_truth=config.sp_lambda <= 0.0)
+			= build_compact_tensor_no_support(full_batch, para_idxs, not config.debug)
 		start_logits, end_logits, type_logits, _, yp1, yp2 \
 			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
 					compact_answer_masks, compact_all_mapping, task='reason', return_yp=True)
@@ -258,15 +255,28 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		for sp_t, sp_p in zip(is_support_np, predict_support_np):
 			if sp_t == IGNORE_INDEX:
 				continue
-			sp_true.append(sp_t)
-			sp_pred.append(sp_p)
+			is_sp_true.append(sp_t)
+			is_sp_pred.append(sp_p)
+
+		has_support_np = has_support.data.cpu().numpy()
+		for data_i, para_idx in enumerate(para_idxs):
+			for para_i, has_sp in enumerate(has_support_np[data_i]):
+				if has_sp == IGNORE_INDEX:
+					continue
+				has_sp_true.append(has_sp)
+				if para_i in para_idx:
+					has_sp_pred.append(1)
+				else:
+					has_sp_pred.append(0)
 
 		step_cnt += 1
 	loss = total_loss / step_cnt
 	metrics = evaluate(eval_file, answer_dict)
 	metrics['loss'] = loss
-	sp_precision, sp_recall, sp_f1 = evaluate_sp(sp_true, sp_pred)
-	metrics['sp_precision'] = sp_precision
-	metrics['sp_recall'] = sp_recall
-	metrics['sp_f1'] = sp_f1
+	_, _, sp_f1 = evaluate_sp(is_sp_true, is_sp_pred)
+	has_sp_precision, has_sp_recall, has_sp_f1 = evaluate_sp(has_sp_true, has_sp_pred)
+	metrics['is_sp_f1'] = sp_f1
+	metrics['has_sp_precision'] = has_sp_precision
+	metrics['has_sp_recall'] = has_sp_recall
+	metrics['has_sp_f1'] = has_sp_f1
 	return metrics
