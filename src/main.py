@@ -64,7 +64,7 @@ config.test_record_file = _concat(config.test_record_file)
 config.dev_eval_file = _concat(config.dev_eval_file)
 config.test_eval_file = _concat(config.test_eval_file)
 if config.debug:
-	config.batch_size = 2
+	config.batch_size = 4
 	config.aggregate_step = 2
 	config.checkpoint = 1
 	config.period = 1

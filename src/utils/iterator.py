@@ -7,10 +7,7 @@ from utils.constants import *
 from utils.eval import *
 
 
-def build_compact_tensor(batch, cuda, para_idxs=None):
-	if para_idxs is None:
-		para_idxs = [[i for i, has_sp_fact in enumerate(data[HAS_SP_KEY]) if has_sp_fact] for data in batch]
-
+def build_compact_tensor(batch, cuda, para_idxs):
 	bsz = len(batch)
 	compact_ctx_ques_sizes = []
 	compact_max_sent_cnt = 0
@@ -78,7 +75,7 @@ def build_compact_tensor(batch, cuda, para_idxs=None):
 
 def build_compact_tensor_no_support(batch, para_idxs, cuda):
 	compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, compact_answer_masks, _, compact_all_mapping, compact_to_orig_mapping \
-		= build_compact_tensor(batch, cuda, para_idxs=para_idxs)
+		= build_compact_tensor(batch, cuda, para_idxs)
 	return compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
 		   compact_answer_masks, compact_all_mapping, compact_to_orig_mapping
 
@@ -186,7 +183,7 @@ def build_tensor(batch, cuda):
 		q_type = q_type.cuda()
 
 	compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, compact_answer_masks, compact_is_support, compact_all_mapping, compact_to_orig_mapping \
-		= build_compact_tensor(batch, cuda, para_idxs=para_idxs)
+		= build_compact_tensor(batch, cuda, para_idxs)
 
 	return context_ques_idxs, compact_context_ques_idxs, \
 		   context_ques_masks, compact_context_ques_masks, \
