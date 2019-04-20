@@ -96,8 +96,8 @@ def train(config):
 	if config.debug:
 		optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.init_lr)
 	else:
-		optimizer = optim.Adam([{'params': filter(lambda p: 'bert' not in p[0] and p[1].requires_grad,
-												  model.module.named_parameters())},
+		optimizer = optim.Adam([{'params': [param for name, param in model.module.named_parameters()
+											if 'bert' not in name and param.requires_grad]},
 								{'params': filter(lambda p: p.requires_grad, model.module.bert.parameters()),
 								 'lr': config.bert_lr}], lr=config.init_lr)
 	total_loss = 0
