@@ -93,8 +93,12 @@ def train(config):
 	ori_model = model if config.debug else model.cuda()
 	model = nn.DataParallel(ori_model)
 
-	lr = config.init_lr
-	optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.init_lr)
+	if config.debug:
+		optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.init_lr)
+	else:
+		optimizer = optim.Adam([{'params': filter(lambda p: p.requires_grad, model.base.parameters())},
+								{'params': filter(lambda p: p.requires_grad, model.bert.parameters()),
+								 'lr': config.bert_lr}], lr=config.init_lr)
 	total_loss = 0
 	global_step = 0
 	best_dev_F1 = None
@@ -144,8 +148,8 @@ def train(config):
 			if global_step % config.period == 0:
 				cur_loss = total_loss * config.aggregate_step / config.period
 				elapsed = time.time() - start_time
-				logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f}'.format(
-					epoch, global_step, lr, elapsed * 1000 / config.period, cur_loss))
+				logging('| epoch {:3d} | step {:6d} | ms/batch {:5.2f} | train loss {:8.3f}'.format(
+					epoch, global_step, elapsed * 1000 / config.period, cur_loss))
 				total_loss = 0
 				start_time = time.time()
 
@@ -233,7 +237,6 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		# loss = config.sp_lambda * loss_sp + config.ans_lambda * loss_ans
 		loss = config.ans_lambda * loss_ans
 		total_loss += loss.item()
-
 		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
 		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
 			= build_reasoner_input(full_batch, has_support_logits.data.cpu().numpy(), not config.debug,
