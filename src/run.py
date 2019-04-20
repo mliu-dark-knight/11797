@@ -232,7 +232,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		compact_to_orig_mapping \
 			= unpack(data)
 
-		predict_support_np = np.zeros_like(is_support, dtype=int)
+		predict_support_np = np.zeros(is_support.size()[:3], dtype=int)
 
 		para_cnt, sent_cnt = context_ques_idxs.size(1), all_mapping.size(2)
 		for mini_i in range(int(config.batch_size / config.mini_batch_size)):
