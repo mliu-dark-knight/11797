@@ -53,7 +53,7 @@ class HOPModel(nn.Module):
 			one_logits = self.linear_has_support(pooled_output)
 			zero_logits = torch.zeros_like(one_logits)
 			has_support_logits = torch.cat((zero_logits, one_logits), dim=1)
-			return has_support_logits, is_support_logits
+			return has_support_logits.view(bsz, para_cnt, 2), is_support_logits
 
 		type_input = torch.max(pooled_output.view(bsz, para_cnt, self.bert_hidden), dim=1)[0]
 		type_logits = self.linear_type(type_input)
