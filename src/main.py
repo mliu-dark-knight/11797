@@ -2,7 +2,7 @@ import argparse
 import os
 
 from prepro import prepro
-from run import train
+from run import train, test
 
 parser = argparse.ArgumentParser()
 
@@ -15,12 +15,13 @@ train_record_file = os.path.join(data_dir, 'train_record.pkl')
 dev_record_file = os.path.join(data_dir, 'dev_record.pkl')
 test_record_file = os.path.join(data_dir, 'test_record.pkl')
 
-parser.add_argument('--debug', default=False, action='store_true')
+parser.add_argument('--debug', default=True, action='store_true')
 parser.add_argument('--noise_prob', type=float, default=1.0)
 parser.add_argument('--use_gt', default=False, action='store_true')
-parser.add_argument('--mode', type=str, default='train')
+parser.add_argument('--mode', type=str, default='test')
 parser.add_argument('--data_file', type=str)
-parser.add_argument('--save', type=str, default='../experiment/HOTPOT')
+# parser.add_argument('--save', type=str, default='../experiment/HOTPOT-20190420-190616')
+parser.add_argument('--save', type=str)
 
 parser.add_argument('--train_eval_file', type=str, default=train_eval)
 parser.add_argument('--dev_eval_file', type=str, default=dev_eval)
@@ -46,6 +47,7 @@ parser.add_argument('--has_sp_lambda', type=float, default=1.0)
 
 parser.add_argument('--data_split', type=str, default='train')
 parser.add_argument('--fullwiki', action='store_true')
+# parser.add_argument('--prediction_file', type=str, default='../data/dev_distractor_pred.json')
 parser.add_argument('--prediction_file', type=str)
 parser.add_argument('--sp_threshold', type=float, default=0.3)
 
@@ -74,5 +76,5 @@ if __name__ == '__main__':
 		train(config)
 	elif config.mode == 'prepro':
 		prepro(config)
-	# elif config.mode == 'test':
-	#     test(config)
+	elif config.mode == 'test':
+		test(config)

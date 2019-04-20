@@ -8,15 +8,7 @@ from sklearn.metrics import precision_recall_fscore_support
 RE_D = re.compile('\d')
 
 
-def has_digit(string):
-	return RE_D.search(string)
-
-
-def prepro(token):
-	return token if not has_digit(token) else 'N'
-
-
-def get_datapoitns(record_file):
+def get_datapoints(record_file):
 	return torch.load(record_file)
 
 
@@ -104,14 +96,6 @@ def f1_score(prediction, ground_truth):
 
 def exact_match_score(prediction, ground_truth):
 	return (normalize_answer(prediction) == normalize_answer(ground_truth))
-
-
-def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
-	scores_for_ground_truths = []
-	for ground_truth in ground_truths:
-		score = metric_fn(prediction, ground_truth)
-		scores_for_ground_truths.append(score)
-	return max(scores_for_ground_truths)
 
 
 def evaluate_sp(sp_true, sp_pred):

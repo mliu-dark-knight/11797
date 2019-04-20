@@ -1,15 +1,22 @@
-import math
 import os
 import shutil
 import time
 
 import ujson as json
 from torch import optim, nn
+from tqdm import tqdm
 
 from model.hop_model import HOPModel
 from utils.iterator import *
 
 nll = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
+
+
+def set_random_seed(config):
+	random.seed(config.seed)
+	np.random.seed(config.seed)
+	torch.manual_seed(config.seed)
+	torch.cuda.manual_seed_all(config.seed)
 
 
 def create_exp_dir(path, scripts_to_save=None):
@@ -64,10 +71,7 @@ def train(config):
 	with open(config.dev_eval_file, "r") as fh:
 		dev_eval_file = json.load(fh)
 
-	random.seed(config.seed)
-	np.random.seed(config.seed)
-	torch.manual_seed(config.seed)
-	torch.cuda.manual_seed_all(config.seed)
+	set_random_seed(config)
 
 	config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
 	create_exp_dir(config.save)
@@ -84,8 +88,8 @@ def train(config):
 		logging('    - {} : {}'.format(k, v))
 
 	logging("Building model...")
-	train_datapoints = get_datapoitns(config.train_record_file)
-	dev_datapoints = get_datapoitns(config.dev_record_file)
+	train_datapoints = get_datapoints(config.train_record_file)
+	dev_datapoints = get_datapoints(config.dev_record_file)
 
 	model = HOPModel(config)
 
@@ -156,8 +160,8 @@ def train(config):
 			if global_step % config.checkpoint == 0:
 				model.eval()
 				metrics = evaluate_batch(
-					build_iterator(config, dev_datapoints, math.ceil(config.batch_size), False),
-					model, 8 if config.debug else 0, dev_eval_file, config)
+					build_iterator(config, dev_datapoints, config.batch_size, False), model, 2 if config.debug else 0,
+					dev_eval_file, config)
 				model.train()
 
 				logging('-' * 89)
@@ -284,3 +288,76 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	metrics['has_sp_recall'] = has_sp_recall
 	metrics['has_sp_f1'] = has_sp_f1
 	return metrics
+
+
+@torch.no_grad()
+def predict(data_source, model, max_batches, eval_file, config):
+	answer_dict = {}
+	sp_dict = {}
+	sp_th = config.sp_threshold
+	for step, data in enumerate(tqdm(data_source)):
+		if step >= max_batches and max_batches > 0: break
+
+		full_batch, \
+		context_ques_idxs, compact_context_ques_idxs, \
+		context_ques_masks, compact_context_ques_masks, \
+		context_ques_segments, compact_context_ques_segments, \
+		compact_answer_masks, \
+		is_support, compact_is_support, has_support, \
+		all_mapping, compact_all_mapping, \
+		compact_y1, compact_y2, q_type, y1, y2, \
+		compact_to_orig_mapping \
+			= unpack(data)
+
+		has_support_logits, is_support_logits \
+			= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
+
+		para_idxs = select_reasoner_para(full_batch, has_support_logits[:, :, 1].data.cpu().numpy(),
+										 ground_truth=config.has_sp_lambda <= 0.0)
+		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
+		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
+			= build_compact_tensor_no_support(full_batch, para_idxs, not config.debug)
+		start_logits, end_logits, type_logits, _, yp1, yp2 \
+			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+					compact_answer_masks, compact_all_mapping, task='reason', return_yp=True)
+		yp1 = map_compact_to_orig_y(yp1.data.cpu().numpy(), compact_to_orig_mapping)
+		yp2 = map_compact_to_orig_y(yp2.data.cpu().numpy(), compact_to_orig_mapping)
+
+		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(type_logits.data.cpu().numpy(), 1))
+		answer_dict.update(answer_dict_)
+
+		predict_support_np \
+			= np.rint(torch.sigmoid(is_support_logits[:, :, :, 1]).data.cpu().numpy()).astype(int)
+
+		for i in range(predict_support_np.shape[0]):
+			cur_sp_pred = []
+			cur_id = data['ids'][i]
+			for j in range(predict_support_np.shape[1]):
+				if j >= len(eval_file[cur_id]['sent2title_ids']): break
+				for k in range(predict_support_np.shape[2]):
+					if k >= len(eval_file[cur_id]['sent2title_ids'][j]): break
+					if predict_support_np[i, j, k] > sp_th:
+						cur_sp_pred.append(eval_file[cur_id]['sent2title_ids'][j][k])
+			sp_dict.update({cur_id: cur_sp_pred})
+
+	prediction = {'answer': answer_dict, 'sp': sp_dict}
+	with open(config.prediction_file, 'w') as f:
+		json.dump(prediction, f)
+
+
+def test(config):
+	with open(eval('config.' + config.data_split + '_eval_file'), "r") as fh:
+		dev_eval_file = json.load(fh)
+
+	set_random_seed(config)
+	dev_datapoints = get_datapoints(eval('config.' + config.data_split + '_record_file'))
+
+	model = HOPModel(config)
+	ori_model = model if config.debug else model.cuda()
+	ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
+	model = nn.DataParallel(ori_model)
+
+	model.eval()
+
+	predict(build_iterator(config, dev_datapoints, config.batch_size, False), model, 2 if config.debug else 0,
+			dev_eval_file, config)
