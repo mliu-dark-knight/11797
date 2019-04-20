@@ -43,8 +43,8 @@ def filter_para(batch, para_idxs, cuda):
 				raw_start, raw_end, is_sp = sent
 				compact_all_mapping[data_i, :, sent_i + sent_offset,
 				raw_start + token_offset: raw_end + token_offset] = 1.
-			compact_to_orig_mapping[data_i, token_offset: token_offset + len(data[CONTEXT_IDXS_KEY][para_i]),
-			0] = para_i
+			compact_to_orig_mapping[data_i, token_offset: token_offset + len(data[CONTEXT_IDXS_KEY][para_i]), 0] \
+				= para_i
 			compact_to_orig_mapping[data_i, token_offset: token_offset + len(data[CONTEXT_IDXS_KEY][para_i]), 1] \
 				= np.arange(len(data[CONTEXT_IDXS_KEY][para_i]))
 
@@ -112,6 +112,7 @@ def build_tensor(batch, cuda):
 		context_ques_idxs[data_i, :, 1: 1 + len(data[QUES_IDXS_KEY])] = data[QUES_IDXS_KEY]
 		context_ques_idxs[data_i, :, 1 + len(data[QUES_IDXS_KEY]): 2 + len(data[QUES_IDXS_KEY])] = SEP_IDX
 		context_ques_segments[data_i, :, : 2 + len(data[QUES_IDXS_KEY])] = 0
+
 		for para_i, para in enumerate(data[CONTEXT_IDXS_KEY]):
 			context_ques_idxs[data_i, para_i, 2 + len(data[QUES_IDXS_KEY]): 2 + len(data[QUES_IDXS_KEY]) + len(para)] \
 				= para
@@ -136,7 +137,12 @@ def build_tensor(batch, cuda):
 		token_offset = 2 + len(data[QUES_IDXS_KEY])
 		sent_offset = 0
 		compact_to_orig_mapping[data_i, : token_offset, :] = -1
+
 		for compact_para_i, para_i in enumerate(para_idxs[data_i]):
+			para_ctx_size = len(data[CONTEXT_IDXS_KEY][para_i])
+			compact_context_ques_idxs[data_i, :, token_offset: para_ctx_size + token_offset] \
+				= data[CONTEXT_IDXS_KEY][para_i]
+
 			for sent_i, sent in enumerate(data[START_END_FACTS_KEY][para_i]):
 				raw_start, raw_end, is_sp = sent
 				compact_is_support[data_i, :, sent_i + sent_offset] = int(is_sp)
@@ -145,13 +151,16 @@ def build_tensor(batch, cuda):
 			if data[Y1_KEY][0] == para_i and data[Y1_KEY][1] >= 0:
 				compact_y1[data_i] = token_offset + data[Y1_KEY][1]
 				compact_y2[data_i] = token_offset + data[Y2_KEY][1]
-			compact_to_orig_mapping[data_i, token_offset: token_offset + len(data[CONTEXT_IDXS_KEY][para_i]),
-			0] = para_i
+			compact_to_orig_mapping[data_i, token_offset: token_offset + len(data[CONTEXT_IDXS_KEY][para_i]), 0] \
+				= para_i
 			compact_to_orig_mapping[data_i, token_offset: token_offset + len(data[CONTEXT_IDXS_KEY][para_i]), 1] \
 				= np.arange(len(data[CONTEXT_IDXS_KEY][para_i]))
 
-			token_offset += len(data[CONTEXT_IDXS_KEY][para_i])
+			token_offset += para_ctx_size
 			sent_offset += len(data[START_END_FACTS_KEY][para_i])
+
+		compact_context_ques_idxs[data_i, :, compact_ctx_ques_sizes[data_i] - 1: compact_ctx_ques_sizes[data_i]] \
+			= SEP_IDX
 
 		if data[Y1_KEY][1] >= 0:
 			y1[data_i] = data[Y1_KEY]
