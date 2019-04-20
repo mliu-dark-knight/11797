@@ -117,21 +117,22 @@ def train(config):
 			compact_to_orig_mapping \
 				= unpack(data)
 
-			has_support_logits, is_support_logits \
-				= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
+			# has_support_logits, is_support_logits \
+			# 	= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
 
 			start_logits, end_logits, type_logits, compact_is_support_logits \
 				= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
 						compact_answer_masks, compact_all_mapping, task='reason')
-
-			loss_sp = (nll(is_support_logits.view(-1, 2), is_support.view(-1)) +
-					   nll(has_support_logits, has_support.view(-1)) +
-					   nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))) / \
-					  config.aggregate_step
+			#
+			# loss_sp = (nll(is_support_logits.view(-1, 2), is_support.view(-1)) +
+			# 		   nll(has_support_logits, has_support.view(-1)) +
+			# 		   nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))) / \
+			# 		  config.aggregate_step
 			loss_ans = (nll(start_logits, compact_y1) +
 						nll(end_logits, compact_y2) +
 						nll(type_logits, q_type)) / config.aggregate_step
-			loss = config.sp_lambda * loss_sp + config.ans_lambda * loss_ans
+			# loss = config.sp_lambda * loss_sp + config.ans_lambda * loss_ans
+			loss = config.ans_lambda * loss_ans
 			loss.backward()
 			total_loss += loss.item()
 
@@ -223,19 +224,20 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
 					compact_answer_masks, compact_all_mapping, task='reason')
 
-		loss_sp = (nll(is_support_logits.view(-1, 2), is_support.view(-1)) +
-				   nll(has_support_logits, has_support.view(-1)) +
-				   nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1)))
+		# loss_sp = (nll(is_support_logits.view(-1, 2), is_support.view(-1)) +
+		# 		   nll(has_support_logits, has_support.view(-1)) +
+		# 		   nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1)))
 		loss_ans = (nll(start_logits, compact_y1) +
 					nll(end_logits, compact_y2) +
 					nll(type_logits, q_type))
-		loss = config.sp_lambda * loss_sp + config.ans_lambda * loss_ans
+		# loss = config.sp_lambda * loss_sp + config.ans_lambda * loss_ans
+		loss = config.ans_lambda * loss_ans
 		total_loss += loss.item()
 
 		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
 		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
 			= build_reasoner_input(full_batch, has_support_logits.data.cpu().numpy(), not config.debug,
-								   ground_truth=True)
+								   ground_truth=config.sp_lambda <= 0.0)
 		start_logits, end_logits, type_logits, _, yp1, yp2 \
 			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
 					compact_answer_masks, compact_all_mapping, task='reason', return_yp=True)

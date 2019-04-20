@@ -40,7 +40,7 @@ parser.add_argument('--reason_step', type=int, default=1)
 parser.add_argument('--seed', type=int, default=13)
 
 parser.add_argument('--ans_lambda', type=float, default=1.0)
-parser.add_argument('--sp_lambda', type=float, default=1.0)
+parser.add_argument('--sp_lambda', type=float, default=0.0)
 
 parser.add_argument('--data_split', type=str, default='train')
 parser.add_argument('--fullwiki', action='store_true')
