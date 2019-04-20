@@ -103,7 +103,6 @@ def train(config):
 	start_time = time.time()
 	eval_start_time = time.time()
 	model.train()
-	optimizer.zero_grad()
 
 	for epoch in range(config.epoch):
 		for data in build_iterator(config, train_datapoints, config.batch_size, not config.debug):
@@ -131,13 +130,16 @@ def train(config):
 				loss = config.sp_lambda * \
 					   (nll_sum(is_support_logits.view(-1, 2),
 								is_support[mini_i * config.mini_batch_size:
-										   (mini_i + 1) * config.mini_batch_size].view(-1))  / (para_cnt * sent_cnt) +
+										   (mini_i + 1) * config.mini_batch_size].view(-1)) / (para_cnt * sent_cnt) +
 						nll_sum(has_support_logits,
 								has_support[mini_i * config.mini_batch_size:
 											(mini_i + 1) * config.mini_batch_size].view(-1)) / para_cnt) / \
 					   config.batch_size
 				loss.backward()
 				total_loss += loss.item()
+
+			optimizer.zero_grad()
+			optimizer.step()
 
 			start_logits, end_logits, type_logits, compact_is_support_logits \
 				= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
@@ -149,8 +151,8 @@ def train(config):
 			loss.backward()
 			total_loss += loss.item()
 
-			optimizer.step()
 			optimizer.zero_grad()
+			optimizer.step()
 
 			global_step += 1
 
