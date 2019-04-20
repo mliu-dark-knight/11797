@@ -125,18 +125,18 @@ def train(config):
 			has_support_logits, is_support_logits \
 				= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
 
-			start_logits, end_logits, type_logits, compact_is_support_logits \
-				= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
-						compact_answer_masks, compact_all_mapping, task='reason')
+			# start_logits, end_logits, type_logits, compact_is_support_logits \
+			# 	= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+			# 			compact_answer_masks, compact_all_mapping, task='reason')
 
 			loss_has_sp = nll(has_support_logits, has_support.view(-1)) / config.aggregate_step
-			loss_is_sp = (nll(is_support_logits.view(-1, 2), is_support.view(-1)) +
-						  nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))) / \
-						 config.aggregate_step
-			loss_ans = (nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)) / \
-					   config.aggregate_step
+			# loss_is_sp = (nll(is_support_logits.view(-1, 2), is_support.view(-1)) +
+			# 			  nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))) / \
+			# 			 config.aggregate_step
+			# loss_ans = (nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)) / \
+			# 		   config.aggregate_step
 			# loss = config.has_sp_lambda * loss_has_sp + config.is_sp_lambda * loss_is_sp + config.ans_lambda * loss_ans
-			loss = config.has_sp_lambda * loss_has_sp + config.ans_lambda * loss_ans
+			loss = config.has_sp_lambda * loss_has_sp
 			loss.backward()
 			total_loss += loss.item()
 
@@ -230,11 +230,11 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 					compact_answer_masks, compact_all_mapping, task='reason')
 
 		loss_has_sp = nll(has_support_logits, has_support.view(-1))
-		loss_is_sp = nll(is_support_logits.view(-1, 2), is_support.view(-1)) + \
-					 nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))
-		loss_ans = nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)
+		# loss_is_sp = nll(is_support_logits.view(-1, 2), is_support.view(-1)) + \
+		# 			 nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))
+		# loss_ans = nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)
 		# loss = config.has_sp_lambda * loss_has_sp + config.is_sp_lambda * loss_is_sp + config.ans_lambda * loss_ans
-		loss = config.has_sp_lambda * loss_has_sp + config.ans_lambda * loss_ans
+		loss = config.has_sp_lambda * loss_has_sp
 		total_loss += loss.item()
 		para_idxs = select_reasoner_para(full_batch, has_support_logits.data.cpu().numpy(),
 										 ground_truth=config.has_sp_lambda <= 0.0)
