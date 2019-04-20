@@ -190,9 +190,8 @@ def select_reasoner_para(full_batch, has_support_logits, ground_truth=False):
 			cur_ctx_ques_size = 3 + len(data[QUES_IDXS_KEY])
 			for para_i in sorted_para_idxs[data_i]:
 				# some data points may have less than 10 paragraphs
-				if para_i >= len(data[HAS_SP_KEY]):
-					break
-				if cur_ctx_ques_size + len(data[CONTEXT_IDXS_KEY][para_i]) <= BERT_LIMIT:
+				if para_i < len(data[HAS_SP_KEY]) and \
+						cur_ctx_ques_size + len(data[CONTEXT_IDXS_KEY][para_i]) <= BERT_LIMIT:
 					para_idx.append(para_i)
 					cur_ctx_ques_size += len(data[CONTEXT_IDXS_KEY][para_i])
 			para_idxs.append(para_idx)
