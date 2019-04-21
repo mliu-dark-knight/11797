@@ -28,8 +28,8 @@ def build_compact_tensor(batch, cuda, para_idxs):
 	compact_is_support = torch.LongTensor(bsz, 1, compact_max_sent_cnt).fill_(IGNORE_INDEX)
 	compact_answer_masks = torch.zeros(bsz, 1, compact_max_ctx_ques_size)
 	compact_to_orig_mapping = {
-		'token': np.zeros((bsz, compact_max_ctx_ques_size, 2), dtype=int),
-		'sent': np.zeros((bsz, compact_max_sent_cnt, 2), dtype=int)
+		'token': np.full((bsz, compact_max_ctx_ques_size, 2), BIG_INT, dtype=int),
+		'sent': np.full((bsz, compact_max_sent_cnt, 2), BIG_INT, dtype=int)
 	}
 
 	for data_i, data in enumerate(batch):
@@ -38,12 +38,12 @@ def build_compact_tensor(batch, cuda, para_idxs):
 		compact_context_ques_idxs[data_i, :, 1 + len(data[QUES_IDXS_KEY]): 2 + len(data[QUES_IDXS_KEY])] = SEP_IDX
 		compact_context_ques_segments[data_i, :, : 2 + len(data[QUES_IDXS_KEY])] = 0
 		compact_context_ques_masks[data_i, :, : compact_ctx_ques_sizes[data_i]] = 0
-		compact_answer_masks[data_i, :, 2 + len(data[QUES_IDXS_KEY]): compact_ctx_ques_sizes[data_i]] = 1.
+		compact_answer_masks[data_i, :, 2 + len(data[QUES_IDXS_KEY]): compact_ctx_ques_sizes[data_i] - 1] = 1.
 
 		token_offset = 2 + len(data[QUES_IDXS_KEY])
 		sent_offset = 0
 		compact_to_orig_mapping['token'][data_i, : token_offset, :] = -1
-		for compact_para_i, para_i in enumerate(para_idxs[data_i]):
+		for para_i in para_idxs[data_i]:
 			para_ctx_size = len(data[CONTEXT_IDXS_KEY][para_i])
 			compact_context_ques_idxs[data_i, :, token_offset: para_ctx_size + token_offset] \
 				= data[CONTEXT_IDXS_KEY][para_i]
@@ -54,8 +54,7 @@ def build_compact_tensor(batch, cuda, para_idxs):
 				compact_all_mapping[data_i, :, sent_i + sent_offset, raw_start + token_offset: raw_end + token_offset] \
 					= 1.
 				compact_to_orig_mapping['sent'][data_i, sent_i + sent_offset, :] = [para_i, sent_i]
-			compact_to_orig_mapping['token'][data_i, token_offset: token_offset + para_ctx_size, 0] \
-				= para_i
+			compact_to_orig_mapping['token'][data_i, token_offset: token_offset + para_ctx_size, 0] = para_i
 			compact_to_orig_mapping['token'][data_i, token_offset: token_offset + para_ctx_size, 1] \
 				= np.arange(para_ctx_size)
 
@@ -143,7 +142,6 @@ def build_tensor(batch, compact_limit, cuda):
 
 			for sent_i, sent in enumerate(data[START_END_FACTS_KEY][para_i]):
 				raw_start, raw_end, is_sp = sent
-				offset = 2 + len(data[QUES_IDXS_KEY])
 				is_support[data_i, para_i, sent_i] = int(is_sp)
 
 		# build answer span and question type
