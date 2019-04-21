@@ -3,6 +3,7 @@ from pytorch_pretrained_bert import BertTokenizer
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
 BIG_INT = 1e8
+INVALID_INDEX = BIG_INT
 SMALL_FLOAT = 1e-2
 IGNORE_INDEX = -1
 FULL_BATCH_KEY = 'full_batch'

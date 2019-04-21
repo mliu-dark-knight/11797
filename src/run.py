@@ -63,7 +63,7 @@ def unpack(data):
 
 
 def build_iterator(config, bucket, shuffle):
-	return DataIterator(bucket, config.batch_size, shuffle, config.compact_limit, debug=config.debug)
+	return DataIterator(bucket, config.batch_size, shuffle, config.compact_para_cnt, debug=config.debug)
 
 
 def get_model_logits(model, context_ques_idxs, context_ques_masks, context_ques_segments,
@@ -201,18 +201,18 @@ def train(config):
 
 def select_reasoner_para(config, full_batch, has_support, ground_truth=False):
 	if ground_truth:
-		para_idxs = get_mixed_para_idxs(full_batch, config.compact_limit)
+		para_idxs = get_mixed_para_idxs(full_batch, config.compact_para_cnt)
 	else:
 		para_idxs = []
 		sorted_para_idxs = list(np.argsort(-has_support, axis=1))
 		for data_i, data in enumerate(full_batch):
-			# make sure context is not empty
-			para_i = sorted_para_idxs[data_i][0]
-			para_idx = [para_i]
-			cur_ctx_ques_size = 3 + len(data[QUES_IDXS_KEY]) + len(data[CONTEXT_IDXS_KEY][para_i])
+			para_idx = []
+			cur_ctx_ques_size = 3 + len(data[QUES_IDXS_KEY])
 			for para_i in sorted_para_idxs[data_i][1:]:
+				if len(para_idx) >= config.compact_para_cnt:
+					break
 				# some data points may have less than 10 paragraphs
-				if para_i < len(data[HAS_SP_KEY]) and has_support[data_i][para_i] >= config.has_sp_threshold and \
+				if para_i < len(data[HAS_SP_KEY]) and \
 						cur_ctx_ques_size + len(data[CONTEXT_IDXS_KEY][para_i]) <= BERT_LIMIT:
 					para_idx.append(para_i)
 					cur_ctx_ques_size += len(data[CONTEXT_IDXS_KEY][para_i])
@@ -284,11 +284,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		is_support_np = is_support.data.cpu().numpy()
 		compact_predict_support_np = np.rint(torch.sigmoid(
 			compact_is_support_logits[:, :, :, 1]).squeeze(dim=1).data.cpu().numpy()).astype(int)
-		predict_support_np = np.zeros_like(is_support_np)
-		pred_sp_indices = map_compact_to_orig_sp(compact_predict_support_np, compact_to_orig_mapping)
-		predict_support_np[np.expand_dims(np.arange(pred_sp_indices.shape[0]), axis=1),
-						   pred_sp_indices[:, :, 0],
-						   pred_sp_indices[:, :, 1]] = compact_predict_support_np
+		predict_support_np = get_pred_sp_np(is_support_np, compact_predict_support_np, compact_to_orig_mapping)
 		is_support_np = is_support_np.flatten()
 		predict_support_np = predict_support_np.flatten()
 
@@ -322,11 +318,22 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	return metrics
 
 
+def get_pred_sp_np(is_support_np, compact_predict_support_np, compact_to_orig_mapping):
+	predict_support_np = np.zeros_like(is_support_np)
+	pred_sp_indices = map_compact_to_orig_sp(compact_predict_support_np, compact_to_orig_mapping)
+	filter = np.logical_and(pred_sp_indices[:, :, 0] != INVALID_INDEX, pred_sp_indices[:, :, 1] != INVALID_INDEX)
+	predict_support_np[
+		np.repeat(np.arange(pred_sp_indices.shape[0])[:, None], pred_sp_indices.shape[1], axis=1)[filter],
+		pred_sp_indices[:, :, 0][filter],
+		pred_sp_indices[:, :, 1][filter]] = compact_predict_support_np[filter]
+	return predict_support_np
+
+
 @torch.no_grad()
 def predict(data_source, model, max_batches, eval_file, config):
 	answer_dict = {}
 	sp_dict = {}
-	sp_th = config.is_sp_threshold
+	sp_th = config.sp_threshold
 	for step, data in enumerate(tqdm(data_source)):
 		if step >= max_batches and max_batches > 0: break
 
@@ -362,11 +369,7 @@ def predict(data_source, model, max_batches, eval_file, config):
 		is_support_np = is_support.data.cpu().numpy()
 		compact_predict_support_np = np.rint(torch.sigmoid(
 			compact_is_support_logits[:, :, :, 1]).squeeze(dim=1).data.cpu().numpy()).astype(int)
-		predict_support_np = np.zeros_like(is_support_np)
-		pred_sp_indices = map_compact_to_orig_sp(compact_predict_support_np, compact_to_orig_mapping)
-		predict_support_np[np.expand_dims(np.arange(pred_sp_indices.shape[0]), axis=1),
-						   pred_sp_indices[:, :, 0],
-						   pred_sp_indices[:, :, 1]] = compact_predict_support_np
+		predict_support_np = get_pred_sp_np(is_support_np, compact_predict_support_np, compact_to_orig_mapping)
 
 		for i in range(predict_support_np.shape[0]):
 			cur_sp_pred = []

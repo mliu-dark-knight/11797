@@ -22,14 +22,15 @@ def build_compact_tensor(batch, cuda, para_idxs):
 	assert compact_max_ctx_ques_size <= BERT_LIMIT
 
 	compact_context_ques_idxs = torch.LongTensor(bsz, 1, compact_max_ctx_ques_size).fill_(UNK_IDX)
-	compact_context_ques_masks = torch.LongTensor(bsz, 1, compact_max_ctx_ques_size).fill_(0)
+	compact_context_ques_masks = torch.zeros(bsz, 1, compact_max_ctx_ques_size)
 	compact_context_ques_segments = torch.LongTensor(bsz, 1, compact_max_ctx_ques_size).fill_(1)
 	compact_all_mapping = torch.zeros(bsz, 1, compact_max_sent_cnt, compact_max_ctx_ques_size)
 	compact_is_support = torch.LongTensor(bsz, 1, compact_max_sent_cnt).fill_(IGNORE_INDEX)
 	compact_answer_masks = torch.zeros(bsz, 1, compact_max_ctx_ques_size)
+	# make sure not two entries pointing to the same positions
 	compact_to_orig_mapping = {
-		'token': np.full((bsz, compact_max_ctx_ques_size, 2), BIG_INT, dtype=int),
-		'sent': np.full((bsz, compact_max_sent_cnt, 2), BIG_INT, dtype=int)
+		'token': np.full((bsz, compact_max_ctx_ques_size, 2), INVALID_INDEX, dtype=int),
+		'sent': np.full((bsz, compact_max_sent_cnt, 2), INVALID_INDEX, dtype=int)
 	}
 
 	for data_i, data in enumerate(batch):
@@ -42,7 +43,6 @@ def build_compact_tensor(batch, cuda, para_idxs):
 
 		token_offset = 2 + len(data[QUES_IDXS_KEY])
 		sent_offset = 0
-		compact_to_orig_mapping['token'][data_i, : token_offset, :] = -1
 		for para_i in para_idxs[data_i]:
 			para_ctx_size = len(data[CONTEXT_IDXS_KEY][para_i])
 			compact_context_ques_idxs[data_i, :, token_offset: para_ctx_size + token_offset] \
@@ -83,7 +83,7 @@ def build_compact_tensor_no_support(batch, para_idxs, cuda):
 		   compact_answer_masks, compact_all_mapping, compact_to_orig_mapping
 
 
-def get_mixed_para_idxs(batch, compact_limit):
+def get_mixed_para_idxs(batch, compact_para_cnt):
 	pure_para_idxs = [[i for i, has_sp_fact in enumerate(data[HAS_SP_KEY]) if has_sp_fact] for data in batch]
 	left_out_para_idxs = [[i for i, has_sp_fact in enumerate(data[HAS_SP_KEY]) if not has_sp_fact] for data in batch]
 	mixed_para_idxs = []
@@ -91,7 +91,9 @@ def get_mixed_para_idxs(batch, compact_limit):
 		ctx_ques_size = 3 + len(data[QUES_IDXS_KEY]) + sum([len(data[CONTEXT_IDXS_KEY][i]) for i in pure_para_idx])
 		mixed_para_idx = deepcopy(pure_para_idx)
 		for i in left_out_para_idx:
-			if ctx_ques_size + len(data[CONTEXT_IDXS_KEY][i]) <= compact_limit:
+			if len(mixed_para_idx) >= compact_para_cnt:
+				break
+			if ctx_ques_size + len(data[CONTEXT_IDXS_KEY][i]) <= BERT_LIMIT:
 				mixed_para_idx.append(i)
 				ctx_ques_size += len(data[CONTEXT_IDXS_KEY][i])
 		random.shuffle(mixed_para_idx)
@@ -99,10 +101,10 @@ def get_mixed_para_idxs(batch, compact_limit):
 	return mixed_para_idxs
 
 
-def build_tensor(batch, compact_limit, cuda):
+def build_tensor(batch, compact_para_cnt, cuda):
 	bsz = len(batch)
 	# indices of all paragraphs that are fed into reasoner
-	para_idxs = get_mixed_para_idxs(batch, compact_limit)
+	para_idxs = get_mixed_para_idxs(batch, compact_para_cnt)
 	max_ctx_ques_size = 0
 	max_para_cnt = 0
 	# max number of sentences per paragraph
@@ -116,7 +118,7 @@ def build_tensor(batch, compact_limit, cuda):
 			max_sent_cnt = max(max_sent_cnt, len(data[START_END_FACTS_KEY][para_i]))
 
 	context_ques_idxs = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(UNK_IDX)
-	context_ques_masks = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(0)
+	context_ques_masks = torch.zeros(bsz, max_para_cnt, max_ctx_ques_size)
 	context_ques_segments = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(1)
 	is_support = torch.LongTensor(bsz, max_para_cnt, max_sent_cnt).fill_(IGNORE_INDEX)
 	has_support = torch.LongTensor(bsz, max_para_cnt).fill_(IGNORE_INDEX)
@@ -195,7 +197,7 @@ def build_tensor(batch, compact_limit, cuda):
 
 
 class DataIterator(object):
-	def __init__(self, datapoints, bsz, shuffle, compact_limit, debug=False):
+	def __init__(self, datapoints, bsz, shuffle, compact_para_cnt, debug=False):
 		self.datapoints = datapoints
 		self.bsz = bsz
 
@@ -203,7 +205,7 @@ class DataIterator(object):
 			random.shuffle(self.datapoints)
 		self.bkt_ptr = 0
 		self.shuffle = shuffle
-		self.compact_limit = compact_limit
+		self.compact_para_cnt = compact_para_cnt
 		self.debug = debug
 
 	def __iter__(self):
@@ -221,7 +223,7 @@ class DataIterator(object):
 			is_support, compact_is_support, has_support, \
 			compact_all_mapping, \
 			compact_y1, compact_y2, q_type, y1, y2, compact_to_orig_mapping \
-				= build_tensor(cur_batch, self.compact_limit, not self.debug)
+				= build_tensor(cur_batch, self.compact_para_cnt, not self.debug)
 
 			self.bkt_ptr += cur_bsz
 			if self.bkt_ptr >= len(self.datapoints):

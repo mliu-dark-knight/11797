@@ -1,5 +1,6 @@
 import numpy as np
 from pytorch_pretrained_bert import BertModel
+from pytorch_pretrained_bert.modeling import BertConfig, BertLayer, BertPooler
 
 from model.common import *
 from utils.constants import *
@@ -16,6 +17,8 @@ class HOPModel(nn.Module):
 			self.bert = BertModel.from_pretrained('bert-base-uncased')
 			self.bert_hidden = self.bert.config.hidden_size
 		self.linear_has_support = nn.Linear(self.bert_hidden, 1)
+		self.encoder = BertLayer(BertConfig(-1))
+		self.pooler = BertPooler(BertConfig(-1))
 		self.linear_is_support = nn.Linear(self.bert_hidden, 1)
 		self.linear_span = nn.Linear(self.bert_hidden, 2)
 		self.linear_type = nn.Linear(self.bert_hidden, 3)
@@ -47,6 +50,11 @@ class HOPModel(nn.Module):
 			zero_logits = torch.zeros_like(one_logits)
 			has_support_logits = torch.cat((zero_logits, one_logits), dim=1)
 			return has_support_logits.view(bsz, para_cnt, 2)
+
+		extended_attention_mask = context_ques_masks.unsqueeze(2)
+		extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+		bert_output = self.encoder(bert_output, extended_attention_mask)
+		pooled_output = self.pooler(bert_output)
 
 		sent_cnt = all_mapping.size(2)
 		mapping_reshape = all_mapping.view(bsz * para_cnt, sent_cnt, token_cnt)
