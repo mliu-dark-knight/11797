@@ -30,6 +30,7 @@ parser.add_argument('--train_record_file', type=str, default=train_record_file)
 parser.add_argument('--dev_record_file', type=str, default=dev_record_file)
 parser.add_argument('--test_record_file', type=str, default=test_record_file)
 
+parser.add_argument('--hidden_size', type=int, default=256)
 parser.add_argument('--batch_size', type=int, default=4)
 parser.add_argument('--aggregate_step', type=int, default=4)
 parser.add_argument('--epoch', type=int, default=4)

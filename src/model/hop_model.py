@@ -15,10 +15,26 @@ class HOPModel(nn.Module):
 		else:
 			self.bert = BertModel.from_pretrained('bert-base-uncased')
 			self.bert_hidden = self.bert.config.hidden_size
-		self.linear_has_support = nn.Linear(self.bert_hidden, 1)
-		self.linear_is_support = nn.Linear(self.bert_hidden, 1)
-		self.linear_span = nn.Linear(self.bert_hidden, 2)
-		self.linear_type = nn.Linear(self.bert_hidden, 3)
+		self.linear_has_support = nn.Sequential(
+			nn.Linear(self.bert_hidden, config.hidden_size),
+			nn.ReLU(),
+			nn.Linear(config.hidden_size, 1),
+		)
+		self.linear_is_support = nn.Sequential(
+			nn.Linear(self.bert_hidden, config.hidden_size),
+			nn.ReLU(),
+			nn.Linear(config.hidden_size, 1),
+		)
+		self.linear_span = nn.Sequential(
+			nn.Linear(self.bert_hidden, config.hidden_size),
+			nn.ReLU(),
+			nn.Linear(config.hidden_size, 2),
+		)
+		self.linear_type = nn.Sequential(
+			nn.Linear(self.bert_hidden, config.hidden_size),
+			nn.ReLU(),
+			nn.Linear(config.hidden_size, 3)
+		)
 
 	def get_output_mask(self, outer):
 		S = outer.size(1)
