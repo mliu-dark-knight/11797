@@ -62,8 +62,8 @@ def unpack(data):
 		   compact_to_orig_mapping
 
 
-def build_iterator(config, bucket, batch_size, shuffle):
-	return DataIterator(bucket, batch_size, shuffle, debug=config.debug)
+def build_iterator(config, bucket, shuffle):
+	return DataIterator(bucket, config.batch_size, shuffle, config.compact_limit, debug=config.debug)
 
 
 def get_model_logits(model, context_ques_idxs, context_ques_masks, context_ques_segments,
@@ -132,7 +132,7 @@ def train(config):
 	optimizer.zero_grad()
 
 	for epoch in range(config.epoch):
-		for data in build_iterator(config, train_datapoints, config.batch_size, not config.debug):
+		for data in build_iterator(config, train_datapoints, not config.debug):
 			full_batch, \
 			context_ques_idxs, compact_context_ques_idxs, \
 			context_ques_masks, compact_context_ques_masks, \
@@ -176,8 +176,8 @@ def train(config):
 			if global_step % config.checkpoint == 0:
 				model.eval()
 				metrics = evaluate_batch(
-					build_iterator(config, dev_datapoints, config.batch_size, False), model, 2 if config.debug else 0,
-					dev_eval_file, config)
+					build_iterator(config, dev_datapoints, False), model, 2 if config.debug else 0, dev_eval_file,
+					config)
 				model.train()
 
 				logging('-' * 89)
@@ -199,18 +199,18 @@ def train(config):
 	logging('best_dev_F1 {}'.format(best_dev_F1))
 
 
-def select_reasoner_para(full_batch, has_support_logits, ground_truth=False):
+def select_reasoner_para(config, full_batch, has_support, ground_truth=False):
 	if ground_truth:
-		para_idxs = get_mixed_para_idxs(full_batch)
+		para_idxs = get_mixed_para_idxs(full_batch, config.compact_limit)
 	else:
 		para_idxs = []
-		sorted_para_idxs = list(np.argsort(-has_support_logits, axis=1))
+		sorted_para_idxs = list(np.argsort(-has_support, axis=1))
 		for data_i, data in enumerate(full_batch):
 			para_idx = []
 			cur_ctx_ques_size = 3 + len(data[QUES_IDXS_KEY])
 			for para_i in sorted_para_idxs[data_i]:
 				# some data points may have less than 10 paragraphs
-				if para_i < len(data[HAS_SP_KEY]) and \
+				if para_i < len(data[HAS_SP_KEY]) and has_support[data_i][para_i] >= config.has_sp_threshold and \
 						cur_ctx_ques_size + len(data[CONTEXT_IDXS_KEY][para_i]) <= BERT_LIMIT:
 					para_idx.append(para_i)
 					cur_ctx_ques_size += len(data[CONTEXT_IDXS_KEY][para_i])
@@ -264,8 +264,9 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 				config.ans_lambda * loss_ans)
 		total_loss += loss.item()
 
-		para_idxs = select_reasoner_para(full_batch, has_support_logits[:, :, 1].data.cpu().numpy(),
-										 ground_truth=config.has_sp_lambda <= 0.0)
+		para_idxs \
+			= select_reasoner_para(config, full_batch, torch.sigmoid(has_support_logits[:, :, 1]).data.cpu().numpy(),
+								   ground_truth=config.has_sp_lambda <= 0.0)
 		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
 		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
 			= build_compact_tensor_no_support(full_batch, para_idxs, not config.debug)
@@ -323,7 +324,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 def predict(data_source, model, max_batches, eval_file, config):
 	answer_dict = {}
 	sp_dict = {}
-	sp_th = config.sp_threshold
+	sp_th = config.is_sp_threshold
 	for step, data in enumerate(tqdm(data_source)):
 		if step >= max_batches and max_batches > 0: break
 
@@ -341,8 +342,9 @@ def predict(data_source, model, max_batches, eval_file, config):
 		has_support_logits \
 			= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, None, task='locate')
 
-		para_idxs = select_reasoner_para(full_batch, has_support_logits[:, :, 1].data.cpu().numpy(),
-										 ground_truth=config.has_sp_lambda <= 0.0)
+		para_idxs \
+			= select_reasoner_para(config, full_batch, torch.sigmoid(has_support_logits[:, :, 1]).data.cpu().numpy(),
+								   ground_truth=config.has_sp_lambda <= 0.0)
 		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
 		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
 			= build_compact_tensor_no_support(full_batch, para_idxs, not config.debug)
@@ -394,5 +396,4 @@ def test(config):
 
 	model.eval()
 
-	predict(build_iterator(config, dev_datapoints, config.batch_size, False), model, 2 if config.debug else 0,
-			dev_eval_file, config)
+	predict(build_iterator(config, dev_datapoints, False), model, 2 if config.debug else 0, dev_eval_file, config)

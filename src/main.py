@@ -38,7 +38,10 @@ parser.add_argument('--checkpoint', type=int, default=1000)
 parser.add_argument('--period', type=int, default=100)
 parser.add_argument('--init_lr', type=float, default=1e-4)
 parser.add_argument('--bert_lr', type=float, default=2e-5)
+parser.add_argument('--compact_limit', type=int, default=384)
 parser.add_argument('--reason_step', type=int, default=1)
+parser.add_argument('--has_sp_threshold', type=float, default=0.3)
+parser.add_argument('--is_sp_threshold', type=float, default=0.3)
 parser.add_argument('--seed', type=int, default=13)
 
 parser.add_argument('--ans_lambda', type=float, default=1.0)
@@ -49,7 +52,6 @@ parser.add_argument('--data_split', type=str, default='train')
 parser.add_argument('--fullwiki', action='store_true')
 # parser.add_argument('--prediction_file', type=str, default='../data/dev_distractor_pred.json')
 parser.add_argument('--prediction_file', type=str)
-parser.add_argument('--sp_threshold', type=float, default=0.3)
 
 config = parser.parse_args()
 
