@@ -27,7 +27,10 @@ def build_compact_tensor(batch, cuda, para_idxs):
 	compact_all_mapping = torch.zeros(bsz, 1, compact_max_sent_cnt, compact_max_ctx_ques_size)
 	compact_is_support = torch.LongTensor(bsz, 1, compact_max_sent_cnt).fill_(IGNORE_INDEX)
 	compact_answer_masks = torch.zeros(bsz, 1, compact_max_ctx_ques_size)
-	compact_to_orig_mapping = np.zeros((bsz, compact_max_ctx_ques_size, 2), dtype=int)
+	compact_to_orig_mapping = {
+		'token': np.zeros((bsz, compact_max_ctx_ques_size, 2), dtype=int),
+		'sent': np.zeros((bsz, compact_max_sent_cnt, 2), dtype=int)
+	}
 
 	for data_i, data in enumerate(batch):
 		compact_context_ques_idxs[data_i, :, 0: 1] = CLS_IDX
@@ -39,7 +42,7 @@ def build_compact_tensor(batch, cuda, para_idxs):
 
 		token_offset = 2 + len(data[QUES_IDXS_KEY])
 		sent_offset = 0
-		compact_to_orig_mapping[data_i, : token_offset, :] = -1
+		compact_to_orig_mapping['token'][data_i, : token_offset, :] = -1
 		for compact_para_i, para_i in enumerate(para_idxs[data_i]):
 			para_ctx_size = len(data[CONTEXT_IDXS_KEY][para_i])
 			compact_context_ques_idxs[data_i, :, token_offset: para_ctx_size + token_offset] \
@@ -50,9 +53,10 @@ def build_compact_tensor(batch, cuda, para_idxs):
 				compact_is_support[data_i, :, sent_i + sent_offset] = int(is_sp)
 				compact_all_mapping[data_i, :, sent_i + sent_offset, raw_start + token_offset: raw_end + token_offset] \
 					= 1.
-			compact_to_orig_mapping[data_i, token_offset: token_offset + para_ctx_size, 0] \
+				compact_to_orig_mapping['sent'][data_i, sent_i + sent_offset, :] = [para_i, sent_i]
+			compact_to_orig_mapping['token'][data_i, token_offset: token_offset + para_ctx_size, 0] \
 				= para_i
-			compact_to_orig_mapping[data_i, token_offset: token_offset + para_ctx_size, 1] \
+			compact_to_orig_mapping['token'][data_i, token_offset: token_offset + para_ctx_size, 1] \
 				= np.arange(para_ctx_size)
 
 			token_offset += para_ctx_size
@@ -115,7 +119,6 @@ def build_tensor(batch, cuda):
 	context_ques_idxs = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(UNK_IDX)
 	context_ques_masks = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(0)
 	context_ques_segments = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(1)
-	all_mapping = torch.zeros(bsz, max_para_cnt, max_sent_cnt, max_ctx_ques_size)
 	is_support = torch.LongTensor(bsz, max_para_cnt, max_sent_cnt).fill_(IGNORE_INDEX)
 	has_support = torch.LongTensor(bsz, max_para_cnt).fill_(IGNORE_INDEX)
 	y1 = np.zeros((bsz, 2), dtype=int)
@@ -142,7 +145,6 @@ def build_tensor(batch, cuda):
 				raw_start, raw_end, is_sp = sent
 				offset = 2 + len(data[QUES_IDXS_KEY])
 				is_support[data_i, para_i, sent_i] = int(is_sp)
-				all_mapping[data_i, para_i, sent_i, raw_start + offset: raw_end + offset] = 1.
 
 		# build answer span and question type
 		token_offset = 2 + len(data[QUES_IDXS_KEY])
@@ -177,7 +179,6 @@ def build_tensor(batch, cuda):
 		context_ques_segments = context_ques_segments.cuda()
 		is_support = is_support.cuda()
 		has_support = has_support.cuda()
-		all_mapping = all_mapping.cuda()
 		compact_y1 = compact_y1.cuda()
 		compact_y2 = compact_y2.cuda()
 		q_type = q_type.cuda()
@@ -190,7 +191,7 @@ def build_tensor(batch, cuda):
 		   context_ques_segments, compact_context_ques_segments, \
 		   compact_answer_masks, \
 		   is_support, compact_is_support, has_support, \
-		   all_mapping, compact_all_mapping, \
+		   compact_all_mapping, \
 		   compact_y1, compact_y2, q_type, y1, y2, \
 		   compact_to_orig_mapping
 
@@ -219,7 +220,7 @@ class DataIterator(object):
 			context_ques_segments, compact_context_ques_segments, \
 			compact_answer_masks, \
 			is_support, compact_is_support, has_support, \
-			all_mapping, compact_all_mapping, \
+			compact_all_mapping, \
 			compact_y1, compact_y2, q_type, y1, y2, compact_to_orig_mapping \
 				= build_tensor(cur_batch, not self.debug)
 
@@ -241,7 +242,6 @@ class DataIterator(object):
 				IS_SUPPORT_KEY: is_support,
 				COMPACT_IS_SUPPORT_KEY: compact_is_support,
 				HAS_SP_KEY: has_support,
-				ALL_MAPPING_KEY: all_mapping,
 				COMPACT_ALL_MAPPING_KEY: compact_all_mapping,
 				COMPACT_Y1_KEY: compact_y1,
 				COMPACT_Y2_KEY: compact_y2,

@@ -29,8 +29,8 @@ class HOPModel(nn.Module):
 	def forward(self, context_ques_idxs, context_ques_masks, context_ques_segments, answer_masks, all_mapping,
 				task='reason', return_yp=False):
 		assert task in ['locate', 'reason']
-		bsz, para_cnt, token_cnt, sent_cnt \
-			= context_ques_idxs.size(0), context_ques_idxs.size(1), context_ques_idxs.size(2), all_mapping.size(2)
+		bsz, para_cnt, token_cnt \
+			= context_ques_idxs.size(0), context_ques_idxs.size(1), context_ques_idxs.size(2)
 		if self.config.debug:
 			bert_output, pooled_output \
 				= next(self.parameters()).new_tensor(np.random.rand(bsz * para_cnt, token_cnt, self.bert_hidden)), \
@@ -42,18 +42,19 @@ class HOPModel(nn.Module):
 							context_ques_masks.view(bsz * para_cnt, token_cnt),
 							output_all_encoded_layers=False)
 
+		if task == 'locate':
+			one_logits = self.linear_has_support(pooled_output)
+			zero_logits = torch.zeros_like(one_logits)
+			has_support_logits = torch.cat((zero_logits, one_logits), dim=1)
+			return has_support_logits.view(bsz, para_cnt, 2)
+
+		sent_cnt = all_mapping.size(2)
 		mapping_reshape = all_mapping.view(bsz * para_cnt, sent_cnt, token_cnt)
 		support_input = torch.div(torch.bmm(mapping_reshape, bert_output),
 								  torch.sum(mapping_reshape, dim=2, keepdim=True) + SMALL_FLOAT)
 		one_logits = self.linear_is_support(support_input)
 		zero_logits = torch.zeros_like(one_logits)
 		is_support_logits = torch.cat((zero_logits, one_logits), dim=2).view(bsz, para_cnt, sent_cnt, 2)
-
-		if task == 'locate':
-			one_logits = self.linear_has_support(pooled_output)
-			zero_logits = torch.zeros_like(one_logits)
-			has_support_logits = torch.cat((zero_logits, one_logits), dim=1)
-			return has_support_logits.view(bsz, para_cnt, 2), is_support_logits
 
 		type_input = torch.max(pooled_output.view(bsz, para_cnt, self.bert_hidden), dim=1)[0]
 		type_logits = self.linear_type(type_input)

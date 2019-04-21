@@ -45,7 +45,6 @@ def unpack(data):
 	is_support = data[IS_SUPPORT_KEY]
 	compact_is_support = data[COMPACT_IS_SUPPORT_KEY]
 	has_support = data[HAS_SP_KEY]
-	all_mapping = data[ALL_MAPPING_KEY]
 	compact_all_mapping = data[COMPACT_ALL_MAPPING_KEY]
 	y1 = data[Y1_KEY]
 	y2 = data[Y2_KEY]
@@ -58,13 +57,32 @@ def unpack(data):
 		   context_ques_segments, compact_context_ques_segments, \
 		   compact_answer_masks, \
 		   is_support, compact_is_support, has_support, \
-		   all_mapping, compact_all_mapping, \
+		   compact_all_mapping, \
 		   compact_y1, compact_y2, q_type, y1, y2, \
 		   compact_to_orig_mapping
 
 
 def build_iterator(config, bucket, batch_size, shuffle):
 	return DataIterator(bucket, batch_size, shuffle, debug=config.debug)
+
+
+def get_model_logits(model, context_ques_idxs, context_ques_masks, context_ques_segments,
+					 compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+					 compact_all_mapping, compact_answer_masks):
+	has_support_logits \
+		= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, None, task='locate')
+	start_logits, end_logits, type_logits, compact_is_support_logits \
+		= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+				compact_answer_masks, compact_all_mapping, task='reason')
+	return has_support_logits, compact_is_support_logits, start_logits, end_logits, type_logits
+
+
+def get_model_loss(has_support, compact_is_support, compact_y1, compact_y2, q_type,
+				   has_support_logits, compact_is_support_logits, start_logits, end_logits, type_logits):
+	loss_has_sp = nll(has_support_logits.view(-1, 2), has_support.view(-1))
+	loss_is_sp = nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))
+	loss_ans = nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)
+	return loss_has_sp, loss_is_sp, loss_ans
 
 
 def train(config):
@@ -121,26 +139,24 @@ def train(config):
 			context_ques_segments, compact_context_ques_segments, \
 			compact_answer_masks, \
 			is_support, compact_is_support, has_support, \
-			all_mapping, compact_all_mapping, \
+			compact_all_mapping, \
 			compact_y1, compact_y2, q_type, y1, y2, \
 			compact_to_orig_mapping \
 				= unpack(data)
 
-			has_support_logits, is_support_logits \
-				= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
+			has_support_logits, compact_is_support_logits, start_logits, end_logits, type_logits \
+				= get_model_logits(
+				model, context_ques_idxs, context_ques_masks, context_ques_segments,
+				compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+				compact_all_mapping, compact_answer_masks)
 
-			# start_logits, end_logits, type_logits, compact_is_support_logits \
-			# 	= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
-			# 			compact_answer_masks, compact_all_mapping, task='reason')
+			loss_has_sp, loss_is_sp, loss_ans \
+				= get_model_loss(has_support, compact_is_support, compact_y1, compact_y2, q_type,
+								 has_support_logits, compact_is_support_logits, start_logits, end_logits, type_logits)
+			loss = (config.has_sp_lambda * loss_has_sp +
+					config.is_sp_lambda * loss_is_sp +
+					config.ans_lambda * loss_ans) / config.aggregate_step
 
-			loss_has_sp = nll(has_support_logits.view(-1, 2), has_support.view(-1)) / config.aggregate_step
-			# loss_is_sp = (nll(is_support_logits.view(-1, 2), is_support.view(-1)) +
-			# 			  nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))) / \
-			# 			 config.aggregate_step
-			# loss_ans = (nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)) / \
-			# 		   config.aggregate_step
-			# loss = config.has_sp_lambda * loss_has_sp + config.is_sp_lambda * loss_is_sp + config.ans_lambda * loss_ans
-			loss = config.has_sp_lambda * loss_has_sp
 			loss.backward()
 			total_loss += loss.item()
 
@@ -204,7 +220,13 @@ def select_reasoner_para(full_batch, has_support_logits, ground_truth=False):
 
 def map_compact_to_orig_y(yp, compact_to_orig_mapping):
 	bsz = yp.shape[0]
-	return compact_to_orig_mapping[np.arange(bsz), yp]
+	return compact_to_orig_mapping['token'][np.arange(bsz), yp]
+
+
+def map_compact_to_orig_sp(sp, compact_to_orig_mapping):
+	bsz, sent_cnt = sp.shape
+	return compact_to_orig_mapping['sent'][np.expand_dims(np.arange(bsz), axis=1),
+										   np.expand_dims(np.arange(sent_cnt), axis=0)]
 
 
 @torch.no_grad()
@@ -223,31 +245,31 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		context_ques_segments, compact_context_ques_segments, \
 		compact_answer_masks, \
 		is_support, compact_is_support, has_support, \
-		all_mapping, compact_all_mapping, \
+		compact_all_mapping, \
 		compact_y1, compact_y2, q_type, y1, y2, \
 		compact_to_orig_mapping \
 			= unpack(data)
 
-		has_support_logits, is_support_logits \
-			= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
+		has_support_logits, compact_is_support_logits, start_logits, end_logits, type_logits \
+			= get_model_logits(
+			model, context_ques_idxs, context_ques_masks, context_ques_segments,
+			compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+			compact_all_mapping, compact_answer_masks)
 
-		# start_logits, end_logits, type_logits, compact_is_support_logits \
-		# 	= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
-		# 			compact_answer_masks, compact_all_mapping, task='reason')
-
-		loss_has_sp = nll(has_support_logits.view(-1, 2), has_support.view(-1))
-		# loss_is_sp = nll(is_support_logits.view(-1, 2), is_support.view(-1)) + \
-		# 			 nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))
-		# loss_ans = nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)
-		# loss = config.has_sp_lambda * loss_has_sp + config.is_sp_lambda * loss_is_sp + config.ans_lambda * loss_ans
-		loss = config.has_sp_lambda * loss_has_sp
+		loss_has_sp, loss_is_sp, loss_ans \
+			= get_model_loss(has_support, compact_is_support, compact_y1, compact_y2, q_type,
+							 has_support_logits, compact_is_support_logits, start_logits, end_logits, type_logits)
+		loss = (config.has_sp_lambda * loss_has_sp +
+				config.is_sp_lambda * loss_is_sp +
+				config.ans_lambda * loss_ans)
 		total_loss += loss.item()
+
 		para_idxs = select_reasoner_para(full_batch, has_support_logits[:, :, 1].data.cpu().numpy(),
 										 ground_truth=config.has_sp_lambda <= 0.0)
 		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
 		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
 			= build_compact_tensor_no_support(full_batch, para_idxs, not config.debug)
-		start_logits, end_logits, type_logits, _, yp1, yp2 \
+		start_logits, end_logits, type_logits, compact_is_support_logits, yp1, yp2 \
 			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
 					compact_answer_masks, compact_all_mapping, task='reason', return_yp=True)
 		yp1 = map_compact_to_orig_y(yp1.data.cpu().numpy(), compact_to_orig_mapping)
@@ -256,10 +278,17 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(type_logits.data.cpu().numpy(), 1))
 		answer_dict.update(answer_dict_)
 
-		predict_support_np \
-			= np.rint(torch.sigmoid(is_support_logits[:, :, :, 1]).data.cpu().numpy()).astype(int).flatten()
-		is_support_np = is_support.data.cpu().numpy().flatten()
-		assert len(is_support_np) == len(predict_support_np)
+		is_support_np = is_support.data.cpu().numpy()
+		compact_predict_support_np = np.rint(torch.sigmoid(
+			compact_is_support_logits[:, :, :, 1]).squeeze(dim=1).data.cpu().numpy()).astype(int)
+		predict_support_np = np.zeros_like(is_support_np)
+		pred_sp_indices = map_compact_to_orig_sp(compact_predict_support_np, compact_to_orig_mapping)
+		predict_support_np[np.expand_dims(np.arange(pred_sp_indices.shape[0]), axis=1),
+						   pred_sp_indices[:, :, 0],
+						   pred_sp_indices[:, :, 1]] = compact_predict_support_np
+		is_support_np = is_support_np.flatten()
+		predict_support_np = predict_support_np.flatten()
+
 		for sp_t, sp_p in zip(is_support_np, predict_support_np):
 			if sp_t == IGNORE_INDEX:
 				continue
@@ -304,20 +333,20 @@ def predict(data_source, model, max_batches, eval_file, config):
 		context_ques_segments, compact_context_ques_segments, \
 		compact_answer_masks, \
 		is_support, compact_is_support, has_support, \
-		all_mapping, compact_all_mapping, \
+		compact_all_mapping, \
 		compact_y1, compact_y2, q_type, y1, y2, \
 		compact_to_orig_mapping \
 			= unpack(data)
 
-		has_support_logits, is_support_logits \
-			= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, all_mapping, task='locate')
+		has_support_logits \
+			= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, None, task='locate')
 
 		para_idxs = select_reasoner_para(full_batch, has_support_logits[:, :, 1].data.cpu().numpy(),
 										 ground_truth=config.has_sp_lambda <= 0.0)
 		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
 		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
 			= build_compact_tensor_no_support(full_batch, para_idxs, not config.debug)
-		start_logits, end_logits, type_logits, _, yp1, yp2 \
+		start_logits, end_logits, type_logits, compact_is_support_logits, yp1, yp2 \
 			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
 					compact_answer_masks, compact_all_mapping, task='reason', return_yp=True)
 		yp1 = map_compact_to_orig_y(yp1.data.cpu().numpy(), compact_to_orig_mapping)
@@ -326,8 +355,14 @@ def predict(data_source, model, max_batches, eval_file, config):
 		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(type_logits.data.cpu().numpy(), 1))
 		answer_dict.update(answer_dict_)
 
-		predict_support_np \
-			= np.rint(torch.sigmoid(is_support_logits[:, :, :, 1]).data.cpu().numpy()).astype(int)
+		is_support_np = is_support.data.cpu().numpy()
+		compact_predict_support_np = np.rint(torch.sigmoid(
+			compact_is_support_logits[:, :, :, 1]).squeeze(dim=1).data.cpu().numpy()).astype(int)
+		predict_support_np = np.zeros_like(is_support_np)
+		pred_sp_indices = map_compact_to_orig_sp(compact_predict_support_np, compact_to_orig_mapping)
+		predict_support_np[np.expand_dims(np.arange(pred_sp_indices.shape[0]), axis=1),
+						   pred_sp_indices[:, :, 0],
+						   pred_sp_indices[:, :, 1]] = compact_predict_support_np
 
 		for i in range(predict_support_np.shape[0]):
 			cur_sp_pred = []
