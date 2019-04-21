@@ -206,9 +206,11 @@ def select_reasoner_para(config, full_batch, has_support, ground_truth=False):
 		para_idxs = []
 		sorted_para_idxs = list(np.argsort(-has_support, axis=1))
 		for data_i, data in enumerate(full_batch):
-			para_idx = []
-			cur_ctx_ques_size = 3 + len(data[QUES_IDXS_KEY])
-			for para_i in sorted_para_idxs[data_i]:
+			# make sure context is not empty
+			para_i = sorted_para_idxs[data_i][0]
+			para_idx = [para_i]
+			cur_ctx_ques_size = 3 + len(data[QUES_IDXS_KEY]) + len(data[CONTEXT_IDXS_KEY][para_i])
+			for para_i in sorted_para_idxs[data_i][1:]:
 				# some data points may have less than 10 paragraphs
 				if para_i < len(data[HAS_SP_KEY]) and has_support[data_i][para_i] >= config.has_sp_threshold and \
 						cur_ctx_ques_size + len(data[CONTEXT_IDXS_KEY][para_i]) <= BERT_LIMIT:
