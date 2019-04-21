@@ -160,7 +160,7 @@ def train(config):
 			loss.backward()
 			total_loss += loss.item()
 
-			if (global_step + 1) & config.aggregate_step == 0:
+			if (global_step + 1) % config.aggregate_step == 0:
 				optimizer.step()
 				optimizer.zero_grad()
 			global_step += 1
