@@ -267,7 +267,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 		total_loss += loss.item()
 
 		para_idxs \
-			= select_reasoner_para(config, full_batch, torch.sigmoid(has_support_logits[:, :, 1]).data.cpu().numpy(),
+			= select_reasoner_para(config, full_batch, has_support_logits[:, :, 1].data.cpu().numpy(),
 								   ground_truth=config.has_sp_lambda <= 0.0)
 		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
 		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
@@ -352,7 +352,7 @@ def predict(data_source, model, max_batches, eval_file, config):
 			= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, None, task='locate')
 
 		para_idxs \
-			= select_reasoner_para(config, full_batch, torch.sigmoid(has_support_logits[:, :, 1]).data.cpu().numpy(),
+			= select_reasoner_para(config, full_batch, has_support_logits[:, :, 1].data.cpu().numpy(),
 								   ground_truth=config.has_sp_lambda <= 0.0)
 		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
 		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
