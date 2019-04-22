@@ -85,6 +85,14 @@ def get_model_loss(has_support, compact_is_support, compact_y1, compact_y2, q_ty
 	return loss_has_sp, loss_is_sp, loss_ans
 
 
+def logging(config, s, print_=True, log_=True):
+	if print_:
+		print(s)
+	if log_:
+		with open(os.path.join(config.save, 'log.txt'), 'a+') as f_log:
+			f_log.write(s + '\n')
+
+
 def train(config):
 	with open(config.dev_eval_file, "r") as fh:
 		dev_eval_file = json.load(fh)
@@ -94,24 +102,17 @@ def train(config):
 	config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
 	create_exp_dir(config.save)
 
-	def logging(s, print_=True, log_=True):
-		if print_:
-			print(s)
-		if log_:
-			with open(os.path.join(config.save, 'log.txt'), 'a+') as f_log:
-				f_log.write(s + '\n')
-
-	logging('Config')
+	logging(config, 'Config')
 	for k, v in config.__dict__.items():
-		logging('    - {} : {}'.format(k, v))
+		logging(config, '    - {} : {}'.format(k, v))
 
-	logging("Building model...")
+	logging(config, "Building model...")
 	train_datapoints = get_datapoints(config.train_record_file)
 	dev_datapoints = get_datapoints(config.dev_record_file)
 
 	model = HOPModel(config)
 
-	logging('nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
+	logging(config, 'nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
 	ori_model = model if config.debug else model.cuda()
 	model = nn.DataParallel(ori_model)
 
@@ -168,7 +169,7 @@ def train(config):
 			if global_step % config.period == 0:
 				cur_loss = total_loss * config.aggregate_step / config.period
 				elapsed = time.time() - start_time
-				logging('| epoch {:3d} | step {:6d} | ms/batch {:5.2f} | train loss {:8.3f}'.format(
+				logging(config, '| epoch {:3d} | step {:6d} | ms/batch {:5.2f} | train loss {:8.3f}'.format(
 					epoch, global_step, elapsed * 1000 / config.period, cur_loss))
 				total_loss = 0
 				start_time = time.time()
@@ -180,14 +181,14 @@ def train(config):
 					config)
 				model.train()
 
-				logging('-' * 89)
-				logging(
-					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | HAS_SP_Precision {:.4f} | HAS_SP_Recall {:.4f} | HAS_SP_F1 {:.4f} | IS_SP_F1 {:.4f}'.format(
-						global_step // config.checkpoint, epoch, time.time() - eval_start_time,
-						metrics['loss'], metrics['exact_match'], metrics['f1'],
-						metrics['has_sp_precision'], metrics['has_sp_recall'], metrics['has_sp_f1'],
-						metrics['is_sp_f1']))
-				logging('-' * 89)
+				logging(config, '-' * 89)
+				logging(config,
+						'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | HAS_SP_Precision {:.4f} | HAS_SP_Recall {:.4f} | HAS_SP_F1 {:.4f} | IS_SP_F1 {:.4f}'.format(
+							global_step // config.checkpoint, epoch, time.time() - eval_start_time,
+							metrics['loss'], metrics['exact_match'], metrics['f1'],
+							metrics['has_sp_precision'], metrics['has_sp_recall'], metrics['has_sp_f1'],
+							metrics['is_sp_f1']))
+				logging(config, '-' * 89)
 
 				eval_start_time = time.time()
 
@@ -196,7 +197,7 @@ def train(config):
 					best_dev_F1 = dev_F1
 					torch.save(ori_model.state_dict(), os.path.join(config.save, 'model.pt'))
 				if stop_train: break
-	logging('best_dev_F1 {}'.format(best_dev_F1))
+	logging(config, 'best_dev_F1 {}'.format(best_dev_F1))
 
 
 def select_reasoner_para(config, full_batch, has_support, ground_truth=False):
@@ -401,4 +402,17 @@ def test(config):
 
 	model.eval()
 
-	predict(build_iterator(config, dev_datapoints, False), model, 2 if config.debug else 0, dev_eval_file, config)
+	if config.prediction_file is not None:
+		predict(build_iterator(config, dev_datapoints, False), model, 2 if config.debug else 0, dev_eval_file, config)
+	else:
+		eval_start_time = time.time()
+		metrics = evaluate_batch(build_iterator(config, dev_datapoints, False), model, 2 if config.debug else 0,
+								 dev_eval_file, config)
+		logging(config, '-' * 89)
+		logging(config,
+				'| time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | HAS_SP_Precision {:.4f} | HAS_SP_Recall {:.4f} | HAS_SP_F1 {:.4f} | IS_SP_F1 {:.4f}'.format(
+					time.time() - eval_start_time,
+					metrics['loss'], metrics['exact_match'], metrics['f1'],
+					metrics['has_sp_precision'], metrics['has_sp_recall'], metrics['has_sp_f1'],
+					metrics['is_sp_f1']))
+		logging(config, '-' * 89)
