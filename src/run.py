@@ -209,7 +209,7 @@ def select_reasoner_para(config, full_batch, has_support, ground_truth=False):
 		for data_i, data in enumerate(full_batch):
 			para_idx = []
 			cur_ctx_ques_size = 3 + len(data[QUES_IDXS_KEY])
-			for para_i in sorted_para_idxs[data_i][1:]:
+			for para_i in sorted_para_idxs[data_i]:
 				if len(para_idx) >= config.compact_para_cnt:
 					break
 				# some data points may have less than 10 paragraphs
