@@ -189,7 +189,7 @@ def _process_article(article, data_split):
 				if data_split == 'test':
 					best_indices = ((-1, 0), (-1, 1))
 				else:
-					return None
+					raise Exception()
 			else:
 				triples = [(para_id, *fix_span(text_context_para, offsets_para, answer)) for
 						   para_id, (text_context_para, offsets_para) in enumerate(zip(text_context, offsets))]
@@ -211,19 +211,21 @@ def _process_article(article, data_split):
 
 	example = {'context_tokens': context_tokens, 'ques_tokens': ques_tokens,
 			   Y1_KEY: best_indices[0], Y2_KEY: best_indices[1], ID_KEY: article['_id'],
-			   START_END_FACTS_KEY: start_end_facts}
+			   START_END_FACTS_KEY: start_end_facts,
+			   HAS_SP_KEY: [reduce(lambda a, b: a or b, [is_sp for _, _, is_sp in para_facts], False)
+			                for para_facts in start_end_facts]}
 	eval_example = {'context': text_context, 'question': article['question'], 'spans': flat_offsets,
 					'answer': [answer], 'id': article['_id'], 'sent2title_ids': sent2title_ids}
 	return example, eval_example
 
 
-def process_file(filename, data_split):
+def process_file(config, filename):
 	data = json.load(open(filename, 'r'))
 
 	eval_examples = {}
 
-	outputs = Parallel(n_jobs=32, verbose=10)(delayed(_process_article)(article, data_split) for article in data)
-	# outputs = [_process_article(article, data_split) for article in data]
+	outputs = [_process_article(article, config.data_split) for article in data[:8]] if config.debug else\
+		Parallel(n_jobs=32, verbose=10)(delayed(_process_article)(article, config.data_split) for article in data)
 	outputs = [output for output in outputs if output is not None]
 	examples = [e[0] for e in outputs]
 	for _, e in outputs:
@@ -242,9 +244,10 @@ def convert_tokens_to_ids(tokens):
 
 def build_features(examples, data_type, out_file):
 	def filter_func(example):
-		if example[Y2_KEY][1] - example[Y1_KEY][1] + 1 > ANS_LIMIT:
-			return True
+		ctx_size = sum([example['context_tokens'][i] for i, has_sp in enumerate(example[HAS_SP_KEY])])
 		if len(example['ques_tokens']) > QUES_LIMIT:
+			return True
+		if ctx_size + len(example['ques_tokens']) + 3 > BERT_LIMIT:
 			return True
 		return False
 
@@ -257,7 +260,7 @@ def build_features(examples, data_type, out_file):
 		if filter_func(example):
 			continue
 		total += 1
-		context_idxs = [torch.tensor(convert_tokens_to_ids(para[:PARA_LIMIT])) for para in example['context_tokens']]
+		context_idxs = [torch.tensor(convert_tokens_to_ids(para)) for para in example['context_tokens']]
 		ques_idxs = torch.tensor(convert_tokens_to_ids(example['ques_tokens']))
 
 		start, end = example[Y1_KEY], example[Y2_KEY]
@@ -272,8 +275,7 @@ def build_features(examples, data_type, out_file):
 			Y2_KEY: y2,
 			ID_KEY: example[ID_KEY],
 			START_END_FACTS_KEY: example[START_END_FACTS_KEY],
-			HAS_SP_KEY: [reduce(lambda a, b: a or b, [is_sp for _, _, is_sp in para_facts], False)
-						 for para_facts in example[START_END_FACTS_KEY]]})
+			HAS_SP_KEY: example[HAS_SP_KEY]})
 	print("Build {} / {} instances of features in total".format(total, total_))
 	# pickle.dump(datapoints, open(out_file, 'wb'), protocol=-1)
 	torch.save(datapoints, out_file)
@@ -305,7 +307,7 @@ def prepro(config):
 		examples = torch.load(tmp_record_file)
 		eval_examples = torch.load(tmp_eval_file)
 	else:
-		examples, eval_examples = process_file(config.data_file, config.data_split)
+		examples, eval_examples = process_file(config, config.data_file)
 		torch.save(examples, tmp_record_file)
 		torch.save(eval_examples, tmp_eval_file)
 
