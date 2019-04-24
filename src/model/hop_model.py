@@ -21,16 +21,15 @@ class HOPModel(nn.Module):
 		bert_config = BertConfig(-1, hidden_size=config.hidden_size, num_hidden_layers=1,
 								 num_attention_heads=config.num_attention_heads,
 								 intermediate_size=config.intermediate_size)
+		self.encoder = BertLayer(bert_config)
+		self.pooler = BertPooler(bert_config)
+
 		if config.locate_global:
 			self.linear_has_support = nn.Linear(config.hidden_size, 1)
 		else:
 			self.linear_has_support = nn.Linear(self.bert_hidden, 1)
-		self.encoder_support = BertLayer(bert_config)
-		self.pooler_support = BertPooler(bert_config)
 		self.linear_is_support = nn.Linear(config.hidden_size, 1)
 		self.is_support_to_span = nn.Linear(2 * config.hidden_size, config.hidden_size)
-		self.encoder_span = BertLayer(bert_config)
-		self.pooler_type = BertPooler(bert_config)
 		self.linear_span = nn.Linear(config.hidden_size, 2)
 		self.linear_type = nn.Linear(config.hidden_size, 3)
 
@@ -63,8 +62,8 @@ class HOPModel(nn.Module):
 			if self.config.locate_global:
 				bert_output = self.intermediate_hidden(bert_output)
 				bert_output = gelu(bert_output)
-				bert_output = self.encoder_support(bert_output, extended_attention_mask)
-				pooled_output = self.pooler_support(bert_output)
+				bert_output = self.encoder(bert_output, extended_attention_mask)
+				pooled_output = self.pooler(bert_output)
 			one_logits = self.linear_has_support(pooled_output)
 			zero_logits = torch.zeros_like(one_logits)
 			has_support_logits = torch.cat((zero_logits, one_logits), dim=1)
@@ -76,7 +75,7 @@ class HOPModel(nn.Module):
 		answer_masks = answer_masks.squeeze(dim=1)
 		all_mapping = all_mapping.squeeze(dim=1)
 
-		is_support_output = self.encoder_support(bert_output, extended_attention_mask)
+		is_support_output = self.encoder(bert_output, extended_attention_mask)
 		is_support_input = torch.div(torch.bmm(all_mapping, is_support_output),
 		                             torch.sum(all_mapping, dim=2, keepdim=True) + SMALL_FLOAT)
 		one_logits = self.linear_is_support(is_support_input)
@@ -85,8 +84,8 @@ class HOPModel(nn.Module):
 
 		is_support_to_span = torch.bmm(all_mapping.permute(0, 2, 1), is_support_input)
 		is_support_to_span = gelu(self.is_support_to_span(torch.cat((bert_output, is_support_to_span), dim=2)))
-		span_input = self.encoder_span(is_support_to_span, extended_attention_mask)
-		type_input = self.pooler_type(span_input)
+		span_input = self.encoder(is_support_to_span, extended_attention_mask)
+		type_input = self.pooler(span_input)
 		type_logits = self.linear_type(type_input)
 		span_logits = self.linear_span(span_input)
 		span_logits -= (1. - answer_masks.unsqueeze(dim=2)) * BIG_INT
