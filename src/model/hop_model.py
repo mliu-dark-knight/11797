@@ -1,8 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from pytorch_pretrained_bert import BertModel
-from pytorch_pretrained_bert.modeling import BertConfig, BertLayer, BertPooler, gelu
+from pytorch_pretrained_bert.modeling import BertModel, BertConfig, BertLayer, BertPooler, gelu
 from torch.autograd import Variable
 
 from utils.constants import *
@@ -23,12 +22,11 @@ class HOPModel(nn.Module):
 								 num_attention_heads=config.num_attention_heads,
 								 intermediate_size=config.intermediate_size)
 		if config.locate_global:
-			self.encoder_has_support = BertLayer(bert_config)
-			self.pooler_has_support = BertPooler(bert_config)
 			self.linear_has_support = nn.Linear(config.hidden_size, 1)
 		else:
 			self.linear_has_support = nn.Linear(self.bert_hidden, 1)
-		self.encoder_is_support = BertLayer(bert_config)
+		self.encoder_support = BertLayer(bert_config)
+		self.pooler_support = BertPooler(bert_config)
 		self.linear_is_support = nn.Linear(config.hidden_size, 1)
 		self.is_support_to_span = nn.Linear(2 * config.hidden_size, config.hidden_size)
 		self.encoder_span = BertLayer(bert_config)
@@ -65,8 +63,8 @@ class HOPModel(nn.Module):
 			if self.config.locate_global:
 				bert_output = self.intermediate_hidden(bert_output)
 				bert_output = gelu(bert_output)
-				bert_output = self.encoder_has_support(bert_output, extended_attention_mask)
-				pooled_output = self.pooler_has_support(bert_output)
+				bert_output = self.encoder_support(bert_output, extended_attention_mask)
+				pooled_output = self.pooler_support(bert_output)
 			one_logits = self.linear_has_support(pooled_output)
 			zero_logits = torch.zeros_like(one_logits)
 			has_support_logits = torch.cat((zero_logits, one_logits), dim=1)
@@ -78,7 +76,7 @@ class HOPModel(nn.Module):
 		answer_masks = answer_masks.squeeze(dim=1)
 		all_mapping = all_mapping.squeeze(dim=1)
 
-		is_support_output = self.encoder_is_support(bert_output, extended_attention_mask)
+		is_support_output = self.encoder_support(bert_output, extended_attention_mask)
 		is_support_input = torch.div(torch.bmm(all_mapping, is_support_output),
 		                             torch.sum(all_mapping, dim=2, keepdim=True) + SMALL_FLOAT)
 		one_logits = self.linear_is_support(is_support_input)
