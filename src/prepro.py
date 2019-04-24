@@ -186,10 +186,7 @@ def _process_article(article, data_split):
 			if answer not in ''.join(text_context):
 				# in the fullwiki setting, the answer might not have been retrieved
 				# use (0, 1) so that we can proceed
-				if data_split != 'train':
-					best_indices = ((-1, -3), (-1, -3))
-				else:
-					return None
+				best_indices = ((-1, -3), (-1, -3))
 			else:
 				triples = [(para_id, *fix_span(text_context_para, offsets_para, answer)) for
 						   para_id, (text_context_para, offsets_para) in enumerate(zip(text_context, offsets))]

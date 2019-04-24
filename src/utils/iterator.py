@@ -126,7 +126,7 @@ def build_tensor(batch, compact_para_cnt, cuda):
 	y2 = np.zeros((bsz, 2), dtype=int)
 	compact_y1 = torch.LongTensor(bsz).fill_(IGNORE_INDEX)
 	compact_y2 = torch.LongTensor(bsz).fill_(IGNORE_INDEX)
-	q_type = torch.LongTensor(bsz)
+	q_type = torch.LongTensor(bsz).fill_(IGNORE_INDEX)
 
 	for data_i, data in enumerate(batch):
 		context_ques_idxs[data_i, :, 0: 1] = CLS_IDX
