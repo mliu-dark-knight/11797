@@ -244,7 +244,7 @@ def convert_tokens_to_ids(tokens):
 
 def build_features(examples, data_type, out_file):
 	def filter_func(example):
-		ctx_size = sum([len(example['context_tokens'][i]) for i, has_sp in enumerate(example[HAS_SP_KEY])])
+		ctx_size = sum([len(example['context_tokens'][i]) for i, has_sp in enumerate(example[HAS_SP_KEY]) if has_sp])
 		if len(example['ques_tokens']) > QUES_LIMIT:
 			return True
 		if ctx_size + len(example['ques_tokens']) + 3 > BERT_LIMIT:
