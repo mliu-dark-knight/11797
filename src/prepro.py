@@ -186,8 +186,8 @@ def _process_article(article, data_split):
 			if answer not in ''.join(text_context):
 				# in the fullwiki setting, the answer might not have been retrieved
 				# use (0, 1) so that we can proceed
-				if data_split == 'test':
-					best_indices = ((-1, 0), (-1, 1))
+				if data_split != 'train':
+					best_indices = ((-1, -3), (-1, -3))
 				else:
 					return None
 			else:

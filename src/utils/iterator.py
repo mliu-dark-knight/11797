@@ -157,18 +157,17 @@ def build_tensor(batch, compact_para_cnt, cuda):
 			token_offset += para_ctx_size
 			sent_offset += len(data[START_END_FACTS_KEY][para_i])
 
+		y1[data_i] = data[Y1_KEY]
+		y2[data_i] = data[Y2_KEY]
 		if data[Y1_KEY][1] >= 0:
-			y1[data_i] = data[Y1_KEY]
-			y2[data_i] = data[Y2_KEY]
 			q_type[data_i] = 0
 		elif data[Y1_KEY][1] == -1:
-			y1[data_i] = (IGNORE_INDEX, IGNORE_INDEX)
-			y2[data_i] = (IGNORE_INDEX, IGNORE_INDEX)
 			q_type[data_i] = 1
 		elif data[Y1_KEY][1] == -2:
-			y1[data_i] = (IGNORE_INDEX, IGNORE_INDEX)
-			y2[data_i] = (IGNORE_INDEX, IGNORE_INDEX)
 			q_type[data_i] = 2
+		elif data[Y1_KEY][1] == -3:
+			# ground truth sentence is dropped from dev set
+			pass
 		else:
 			assert False
 
