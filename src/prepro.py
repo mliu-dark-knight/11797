@@ -302,7 +302,7 @@ def prepro(config):
 		eval_file = config.test_eval_file
 
 	tmp_record_file = os.path.join(os.path.dirname(record_file), 'tmp_' + os.path.basename(record_file))
-	if os.path.isfile(tmp_record_file):
+	if os.path.isfile(tmp_record_file) and os.path.isfile(eval_file):
 		examples = torch.load(tmp_record_file)
 	else:
 		examples, eval_examples = process_file(config, config.data_file)
