@@ -189,7 +189,7 @@ def _process_article(article, data_split):
 				if data_split == 'test':
 					best_indices = ((-1, 0), (-1, 1))
 				else:
-					raise Exception()
+					return None
 			else:
 				triples = [(para_id, *fix_span(text_context_para, offsets_para, answer)) for
 						   para_id, (text_context_para, offsets_para) in enumerate(zip(text_context, offsets))]
