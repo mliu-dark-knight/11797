@@ -302,14 +302,11 @@ def prepro(config):
 		eval_file = config.test_eval_file
 
 	tmp_record_file = os.path.join(os.path.dirname(record_file), 'tmp_' + os.path.basename(record_file))
-	tmp_eval_file = os.path.join(os.path.dirname(eval_file), 'tmp_' + os.path.basename(eval_file))
-	if os.path.isfile(tmp_record_file) and os.path.isfile(tmp_eval_file):
+	if os.path.isfile(tmp_record_file):
 		examples = torch.load(tmp_record_file)
-		eval_examples = torch.load(tmp_eval_file)
 	else:
 		examples, eval_examples = process_file(config, config.data_file)
 		torch.save(examples, tmp_record_file)
-		torch.save(eval_examples, tmp_eval_file)
+		save(eval_file, eval_examples, message='{} eval'.format(config.data_split))
 
 	build_features(examples, config.data_split, record_file)
-	save(eval_file, eval_examples, message='{} eval'.format(config.data_split))
