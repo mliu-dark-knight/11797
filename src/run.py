@@ -132,7 +132,7 @@ def train(config):
 								 'lr': config.bert_lr}], lr=config.init_lr)
 
 	if not config.debug and config.fp16:
-		model, optimizer = amp.initialize(model, optimizer, opt_level='01', keep_batchnorm_fp32=True)
+		model, optimizer = amp.initialize(model, optimizer, opt_level='O1', keep_batchnorm_fp32=True)
 		model = DDP(model, delay_allreduce=True)
 	else:
 		model = nn.DataParallel(model)
