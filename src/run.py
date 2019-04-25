@@ -6,6 +6,14 @@ import ujson as json
 from torch import optim, nn
 from tqdm import tqdm
 
+try:
+	from apex.parallel import DistributedDataParallel as DDP
+	from apex import amp
+except ImportError:
+	# raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
+	pass
+
+
 from model.hop_model import HOPModel
 from utils.iterator import *
 
@@ -111,18 +119,24 @@ def train(config):
 	dev_datapoints = get_datapoints(config.dev_record_file)
 
 	model = HOPModel(config)
+	if not config.debug: model = model.cuda()
 
 	logging(config, 'nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
-	ori_model = model if config.debug else model.cuda()
-	model = nn.DataParallel(ori_model)
 
 	if config.debug:
 		optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.init_lr)
 	else:
-		optimizer = optim.Adam([{'params': [param for name, param in model.module.named_parameters()
+		optimizer = optim.Adam([{'params': [param for name, param in model.named_parameters()
 											if 'bert' not in name and param.requires_grad]},
-								{'params': filter(lambda p: p.requires_grad, model.module.bert.parameters()),
+								{'params': filter(lambda p: p.requires_grad, model.bert.parameters()),
 								 'lr': config.bert_lr}], lr=config.init_lr)
+
+	if not config.debug and config.fp16:
+		model, optimizer = amp.initialize(model, optimizer, opt_level='01', keep_batchnorm_fp32=True)
+		model = DDP(model, delay_allreduce=True)
+	else:
+		model = nn.DataParallel(model)
+
 	total_loss = 0
 	global_step = 0
 	best_dev_F1 = None
@@ -195,7 +209,7 @@ def train(config):
 				dev_F1 = metrics['f1']
 				if best_dev_F1 is None or dev_F1 > best_dev_F1:
 					best_dev_F1 = dev_F1
-					torch.save(ori_model.state_dict(), os.path.join(config.save, 'model.pt'))
+					torch.save(model.module.state_dict(), os.path.join(config.save, 'model.pt'))
 				if stop_train: break
 	logging(config, 'best_dev_F1 {}'.format(best_dev_F1))
 
@@ -396,10 +410,9 @@ def test(config):
 	dev_datapoints = get_datapoints(eval('config.' + config.data_split + '_record_file'))
 
 	model = HOPModel(config)
-	ori_model = model if config.debug else model.cuda()
-	ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
-	model = nn.DataParallel(ori_model)
-
+	if not config.debug: model = model.cuda()
+	model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
+	model = nn.DataParallel(model)
 	model.eval()
 
 	if config.prediction_file is not None:
