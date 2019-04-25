@@ -7,7 +7,6 @@ from torch import optim, nn
 from tqdm import tqdm
 
 try:
-	from apex.parallel import DistributedDataParallel as DDP
 	from apex import amp
 except ImportError:
 	# raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
@@ -132,10 +131,9 @@ def train(config):
 								 'lr': config.bert_lr}], lr=config.init_lr)
 
 	if not config.debug and config.fp16:
+		assert torch.backends.cudnn.enabled
 		model, optimizer = amp.initialize(model, optimizer, opt_level='O1')
-		model = DDP(model, delay_allreduce=True)
-	else:
-		model = nn.DataParallel(model)
+	model = nn.DataParallel(model)
 
 	total_loss = 0
 	global_step = 0
