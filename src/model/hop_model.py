@@ -17,7 +17,9 @@ class HOPModel(nn.Module):
 		else:
 			self.bert = BertModel.from_pretrained('bert-base-uncased')
 			self.bert_hidden = self.bert.config.hidden_size
-		self.intermediate_hidden = nn.Linear(self.bert_hidden, config.hidden_size)
+		self.intermediate_hidden = nn.Sequential(
+			nn.Linear(self.bert_hidden, config.hidden_size)
+		)
 		bert_config = BertConfig(-1, hidden_size=config.hidden_size, num_hidden_layers=1,
 								 num_attention_heads=config.num_attention_heads,
 								 intermediate_size=config.intermediate_size)
