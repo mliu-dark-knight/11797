@@ -410,11 +410,11 @@ def test(config):
 		eval_start_time = time.time()
 		metrics = evaluate_batch(build_iterator(config, dev_datapoints, False), model, 2 if config.debug else 0,
 								 dev_eval_file, config)
-		logging(config, '-' * 89)
+		logging(config, '-' * 89, log_=False)
 		logging(config,
 				'| time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | HAS_SP_Precision {:.4f} | HAS_SP_Recall {:.4f} | HAS_SP_F1 {:.4f} | IS_SP_F1 {:.4f}'.format(
 					time.time() - eval_start_time,
 					metrics['loss'], metrics['exact_match'], metrics['f1'],
 					metrics['has_sp_precision'], metrics['has_sp_recall'], metrics['has_sp_f1'],
-					metrics['is_sp_f1']))
-		logging(config, '-' * 89)
+					metrics['is_sp_f1']), log_=False)
+		logging(config, '-' * 89, log_=False)
