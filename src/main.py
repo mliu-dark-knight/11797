@@ -42,8 +42,6 @@ parser.add_argument('--compact_para_cnt', type=int, default=4)
 parser.add_argument('--hidden_size', type=int, default=128)
 parser.add_argument('--num_attention_heads', type=int, default=4)
 parser.add_argument('--intermediate_size', type=int, default=256)
-parser.add_argument('--locate_global', default=False, action='store_true', help='Add global layer for locator')
-parser.add_argument('--reason_top', default=False, action='store_true', help='Add top BERT layer for reasoner')
 parser.add_argument('--seed', type=int, default=13)
 
 parser.add_argument('--ans_lambda', type=float, default=1.0)

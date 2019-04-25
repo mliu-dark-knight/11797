@@ -24,10 +24,7 @@ class HOPModel(nn.Module):
 		self.encoder = BertLayer(bert_config)
 		self.pooler = BertPooler(bert_config)
 
-		if config.locate_global:
-			self.linear_has_support = nn.Linear(config.hidden_size, 1)
-		else:
-			self.linear_has_support = nn.Linear(self.bert_hidden, 1)
+		self.linear_has_support = nn.Linear(config.hidden_size, 1)
 		hidden_size = config.hidden_size if config.reason_top else self.bert_hidden
 		self.linear_is_support = nn.Linear(hidden_size, 1)
 		self.linear_span = nn.Linear(hidden_size, 2)
@@ -45,11 +42,11 @@ class HOPModel(nn.Module):
 		bsz, para_cnt, token_cnt \
 			= context_ques_idxs.size(0), context_ques_idxs.size(1), context_ques_idxs.size(2)
 		if self.config.debug:
-			bert_output, pooled_output \
+			bert_output, _ \
 				= next(self.parameters()).new_tensor(np.random.rand(bsz * para_cnt, token_cnt, self.bert_hidden)), \
 				  next(self.parameters()).new_tensor(np.random.rand(bsz * para_cnt, self.bert_hidden))
 		else:
-			bert_output, pooled_output \
+			bert_output, _ \
 				= self.bert(context_ques_idxs.view(bsz * para_cnt, token_cnt),
 							context_ques_segments.view(bsz * para_cnt, token_cnt),
 							context_ques_masks.view(bsz * para_cnt, token_cnt),
@@ -57,31 +54,28 @@ class HOPModel(nn.Module):
 
 		extended_attention_mask = context_ques_masks.view(bsz * para_cnt, token_cnt).unsqueeze(1).unsqueeze(2)
 		extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
-		intermediate_output = self.intermediate_hidden(bert_output)
-		intermediate_output = gelu(intermediate_output)
-		intermediate_output = self.encoder(intermediate_output, extended_attention_mask)
-		pooled_intermediate = self.pooler(intermediate_output)
+		bert_output = self.intermediate_hidden(bert_output)
+		bert_output = gelu(bert_output)
+		bert_output = self.encoder(bert_output, extended_attention_mask)
+		pooled_output = self.pooler(bert_output)
 
 		if task == 'locate':
-			pooled = pooled_intermediate if self.config.locate_global else pooled_output
-			one_logits = self.linear_has_support(pooled)
+			one_logits = self.linear_has_support(pooled_output)
 			zero_logits = torch.zeros_like(one_logits)
 			has_support_logits = torch.cat((zero_logits, one_logits), dim=1)
 			return has_support_logits.view(bsz, para_cnt, 2)
 
-		output = intermediate_output if self.config.reason_top else bert_output
-		pooled = pooled_intermediate if self.config.reason_top else pooled_output
 		answer_masks = answer_masks.squeeze(dim=1)
 		all_mapping = all_mapping.squeeze(dim=1)
 
-		is_support_input = torch.div(torch.bmm(all_mapping, output),
+		is_support_input = torch.div(torch.bmm(all_mapping, bert_output),
 		                             torch.sum(all_mapping, dim=2, keepdim=True) + SMALL_FLOAT)
 		one_logits = self.linear_is_support(is_support_input)
 		zero_logits = torch.zeros_like(one_logits)
 		is_support_logits = torch.cat((zero_logits, one_logits), dim=2).unsqueeze(dim=1)
 
-		type_logits = self.linear_type(pooled)
-		span_logits = self.linear_span(output)
+		type_logits = self.linear_type(pooled_output)
+		span_logits = self.linear_span(bert_output)
 		span_logits -= (1. - answer_masks.unsqueeze(dim=2)) * BIG_INT
 		start_logits, end_logits = span_logits.split(1, dim=2)
 		start_logits, end_logits = start_logits.squeeze(dim=2), end_logits.squeeze(dim=2)
