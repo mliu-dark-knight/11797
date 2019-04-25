@@ -6,14 +6,6 @@ import ujson as json
 from torch import optim, nn
 from tqdm import tqdm
 
-try:
-	from apex.optimizers import FP16_Optimizer
-	from apex.optimizers import FusedAdam
-except ImportError:
-	# raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
-	pass
-
-
 from model.hop_model import HOPModel
 from utils.iterator import *
 
@@ -129,12 +121,7 @@ def train(config):
 		grouped_params = [{'params': [param for name, param in model.named_parameters()
 		                              if 'bert' not in name and param.requires_grad]},
 		                  {'params': filter(lambda p: p.requires_grad, model.bert.parameters()), 'lr': config.bert_lr}]
-		if config.fp16:
-			assert torch.backends.cudnn.enabled
-			model.half()
-			optimizer = FP16_Optimizer(FusedAdam(grouped_params, lr=config.init_lr), dynamic_loss_scale=True)
-		else:
-			optimizer = optim.Adam(grouped_params, lr=config.init_lr)
+		optimizer = optim.Adam(grouped_params, lr=config.init_lr)
 
 	model = nn.DataParallel(model)
 
@@ -173,10 +160,8 @@ def train(config):
 					config.is_sp_lambda * loss_is_sp +
 					config.ans_lambda * loss_ans) / config.aggregate_step
 
-			if config.fp16:
-				optimizer.backward(loss)
-			else:
-				loss.backward()
+
+			loss.backward()
 			total_loss += loss.item()
 
 			if (global_step + 1) % config.aggregate_step == 0:
