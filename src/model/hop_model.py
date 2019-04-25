@@ -25,10 +25,9 @@ class HOPModel(nn.Module):
 		self.pooler = BertPooler(bert_config)
 
 		self.linear_has_support = nn.Linear(config.hidden_size, 1)
-		hidden_size = config.hidden_size if config.reason_top else self.bert_hidden
-		self.linear_is_support = nn.Linear(hidden_size, 1)
-		self.linear_span = nn.Linear(hidden_size, 2)
-		self.linear_type = nn.Linear(hidden_size, 3)
+		self.linear_is_support = nn.Linear(config.hidden_size, 1)
+		self.linear_span = nn.Linear(config.hidden_size, 2)
+		self.linear_type = nn.Linear(config.hidden_size, 3)
 
 	def get_output_mask(self, outer):
 		S = outer.size(1)
