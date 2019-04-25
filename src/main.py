@@ -15,7 +15,7 @@ train_record_file = os.path.join(data_dir, 'train_record.pkl')
 dev_record_file = os.path.join(data_dir, 'dev_record.pkl')
 test_record_file = os.path.join(data_dir, 'test_record.pkl')
 
-parser.add_argument('--debug', default=True, action='store_true')
+parser.add_argument('--debug', default=False, action='store_true')
 parser.add_argument('--mode', type=str, default='train')
 # parser.add_argument('--data_file', type=str, default='../data/hotpot_dev_distractor_v1.json')
 # parser.add_argument('--save', type=str, default='../experiment/HOTPOT-20190424-234152')
