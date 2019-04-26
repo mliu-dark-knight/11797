@@ -6,29 +6,13 @@ from run import train, test
 
 parser = argparse.ArgumentParser()
 
-data_dir = '../data'
-
-train_eval = os.path.join(data_dir, "train_eval.json")
-dev_eval = os.path.join(data_dir, "dev_eval.json")
-test_eval = os.path.join(data_dir, "test_eval.json")
-train_record_file = os.path.join(data_dir, 'train_record.pkl')
-dev_record_file = os.path.join(data_dir, 'dev_record.pkl')
-test_record_file = os.path.join(data_dir, 'test_record.pkl')
-
 parser.add_argument('--debug', default=False, action='store_true')
 parser.add_argument('--mode', type=str, default='train')
+parser.add_argument('--data_dir', type=str, default='../data')
 # parser.add_argument('--data_file', type=str, default='../data/hotpot_dev_distractor_v1.json')
 # parser.add_argument('--save', type=str, default='../experiment/HOTPOT-20190424-234152')
 parser.add_argument('--data_file', type=str)
 parser.add_argument('--save', type=str, default='../experiment/HOTPOT')
-
-parser.add_argument('--train_eval_file', type=str, default=train_eval)
-parser.add_argument('--dev_eval_file', type=str, default=dev_eval)
-parser.add_argument('--test_eval_file', type=str, default=test_eval)
-
-parser.add_argument('--train_record_file', type=str, default=train_record_file)
-parser.add_argument('--dev_record_file', type=str, default=dev_record_file)
-parser.add_argument('--test_record_file', type=str, default=test_record_file)
 
 parser.add_argument('--batch_size', type=int, default=2)
 parser.add_argument('--aggregate_step', type=int, default=8)
@@ -54,6 +38,14 @@ parser.add_argument('--sp_threshold', type=float, default=0.3)
 parser.add_argument('--prediction_file', type=str)
 
 config = parser.parse_args()
+
+config.train_eval = os.path.join(config.data_dir, "train_eval.json")
+config.dev_eval = os.path.join(config.data_dir, "dev_eval.json")
+config.test_eval = os.path.join(config.data_dir, "test_eval.json")
+config.train_record_file = os.path.join(config.data_dir, 'train_record.pkl')
+config.dev_record_file = os.path.join(config.data_dir, 'dev_record.pkl')
+config.test_record_file = os.path.join(config.data_dir, 'test_record.pkl')
+
 
 
 def _concat(filename):
