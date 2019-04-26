@@ -39,26 +39,19 @@ parser.add_argument('--prediction_file', type=str)
 
 config = parser.parse_args()
 
-config.train_eval = os.path.join(config.data_dir, "train_eval.json")
-config.dev_eval = os.path.join(config.data_dir, "dev_eval.json")
-config.test_eval = os.path.join(config.data_dir, "test_eval.json")
-config.train_record_file = os.path.join(config.data_dir, 'train_record.pkl')
-config.dev_record_file = os.path.join(config.data_dir, 'dev_record.pkl')
-config.test_record_file = os.path.join(config.data_dir, 'test_record.pkl')
-
-
-
 def _concat(filename):
 	if config.fullwiki:
 		path, name = os.path.split(filename)
 		return os.path.join(path, 'fullwiki.{}'.format(name))
 	return filename
 
+config.train_record_file = os.path.join(config.data_dir, 'train_record.pkl')
+config.dev_record_file = _concat(os.path.join(config.data_dir, 'dev_record.pkl'))
+config.test_record_file = _concat(os.path.join(config.data_dir, 'test_record.pkl'))
+config.train_eval_file = os.path.join(config.data_dir, "train_eval.json")
+config.dev_eval_file = _concat(os.path.join(config.data_dir, "dev_eval.json"))
+config.test_eval_file = _concat(os.path.join(config.data_dir, "test_eval.json"))
 
-config.dev_record_file = _concat(config.dev_record_file)
-config.test_record_file = _concat(config.test_record_file)
-config.dev_eval_file = _concat(config.dev_eval_file)
-config.test_eval_file = _concat(config.test_eval_file)
 if config.debug:
 	config.batch_size = 4
 	config.aggregate_step = 2
