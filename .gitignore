@@ -21,3 +21,7 @@ data/idx2word.json
 data/word2idx.json
 data/word_emb.json
 src/__pycache__/
+/data/test_eval.json
+/data/test_record.pkl
+/data/train_eval.json
+/data/train_record.pkl

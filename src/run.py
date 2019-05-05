@@ -1,20 +1,22 @@
-import math
 import os
 import shutil
 import time
-import ujson as json
 
+import ujson as json
 from torch import optim, nn
-from torch.autograd import Variable
 from tqdm import tqdm
 
 from model.hop_model import HOPModel
-from model.sp_model import SPModel
 from utils.iterator import *
 
-nll_sum = nn.CrossEntropyLoss(size_average=False, ignore_index=IGNORE_INDEX)
-nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
-nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
+nll = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
+
+
+def set_random_seed(config):
+	random.seed(config.seed)
+	np.random.seed(config.seed)
+	torch.manual_seed(config.seed)
+	torch.cuda.manual_seed_all(config.seed)
 
 
 def create_exp_dir(path, scripts_to_save=None):
@@ -30,128 +32,99 @@ def create_exp_dir(path, scripts_to_save=None):
 			shutil.copyfile(script, dst_file)
 
 
-def baseline_output(model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
-                    start_mapping, end_mapping, all_mapping, orig_idxs, return_yp=False):
-	if return_yp:
-		logit1, logit2, predict_type, predict_support, yp1, yp2 \
-			= model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
-			        start_mapping, end_mapping, all_mapping, return_yp=True)
-		return logit1, logit2, predict_support, predict_type, \
-		       orig_idxs[np.arange(len(yp1)), yp1.data.cpu().numpy()], \
-		       orig_idxs[np.arange(len(yp1)), yp2.data.cpu().numpy()]
-	logit1, logit2, predict_type, predict_support \
-		= model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
-		        start_mapping, end_mapping, all_mapping, return_yp=False)
-	return logit1, logit2, predict_support, predict_type
-
-
-def model_output(config, model, full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs,
-                 context_char_idxs_r, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping,
-                 orig_idxs, orig_idxs_r, return_yp=False):
-	predict_support = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs,
-	                        context_lens, start_mapping, end_mapping, stage='locate', return_yp=return_yp)
-	if return_yp:
-		if config.use_gt:
-			logit1, logit2, predict_type, yp1, yp2 \
-				= model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
-				        None, None, None, stage='reason', return_yp=True)
-		else:
-			logit1, logit2, _, = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
-			                           None, None, None, stage='reason', return_yp=False)
-			batch_p = torch.sigmoid(predict_support[:, :, 1]).data.cpu() < config.sp_threshold
-			para_limit = context_idxs.size()[1]
-			char_limit = config.char_limit
-			cpu = config.cpu
-			cur_batch = sample_sent(full_batch, para_limit, char_limit, batch_p=batch_p, force_drop=True)
-
-			context_idxs_r, context_char_idxs_r, _, _, _, _, _, orig_idxs_r \
-				= build_ctx_tensor(cur_batch, char_limit, not cpu)
-			_, _, predict_type, yp1, yp2 = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
-			                                     None, None, None, stage='reason', return_yp=True)
-		return logit1, logit2, predict_support, predict_type, \
-		       orig_idxs[np.arange(len(yp1)), orig_idxs_r[np.arange(len(yp1)), yp1.data.cpu().numpy()]], \
-		       orig_idxs[np.arange(len(yp2)), orig_idxs_r[np.arange(len(yp2)), yp2.data.cpu().numpy()]]
-
-	logit1, logit2, predict_type = model(context_idxs_r, ques_idxs, context_char_idxs_r, ques_char_idxs,
-	                                     None, None, None, stage='reason', return_yp=False)
-
-	return logit1, logit2, predict_support, predict_type
-
-
 def unpack(data):
 	full_batch = data[FULL_BATCH_KEY]
-	context_idxs = data[CONTEXT_IDXS_KEY]
-	context_idxs_r = data[CONTEXT_IDXS_R_KEY]
-	ques_idxs = data[QUES_IDXS_KEY]
-	context_char_idxs = data[CONTEXT_CHAR_IDXS_KEY]
-	context_char_idxs_r = data[CONTEXT_CHAR_IDXS_R_KEY]
-	ques_char_idxs = data[QUES_CHAR_IDXS_KEY]
-	context_lens = data[CONTEXT_LENS_KEY]
+	context_ques_idxs = data[CONTEXT_QUES_IDXS_KEY]
+	compact_context_ques_idxs = data[COMPACT_CONTEXT_QUES_IDXS_KEY]
+	context_ques_masks = data[CONTEXT_QUES_MASKS_KEY]
+	compact_context_ques_masks = data[COMPACT_CONTEXT_QUES_MASKS_KEY]
+	context_ques_segments = data[CONTEXT_QUES_SEGMENTS_KEY]
+	compact_context_ques_segments = data[COMPACT_CONTEXT_QUES_SEGMENTS_KEY]
+	compact_answer_masks = data[COMPACT_ANSWER_MASKS_KEY]
+	q_type = data[Q_TYPE_KEY]
+	is_support = data[IS_SUPPORT_KEY]
+	compact_is_support = data[COMPACT_IS_SUPPORT_KEY]
+	has_support = data[HAS_SP_KEY]
+	compact_all_mapping = data[COMPACT_ALL_MAPPING_KEY]
 	y1 = data[Y1_KEY]
-	y1_r = data[Y1_R_KEY]
 	y2 = data[Y2_KEY]
-	y2_r = data[Y2_R_KEY]
-	orig_idxs = data[ORIG_IDXS]
-	orig_idxs_r = data[ORIG_IDXS_R]
-	q_type = Variable(data[Q_TYPE_KEY])
-	is_support = Variable(data[IS_SUPPORT_KEY])
-	start_mapping = data[START_MAPPING_KEY]
-	end_mapping = data[END_MAPPING_KEY]
-	all_mapping = data[ALL_MAPPING_KEY]
-	return full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
-	       context_lens, y1, y1_r, y2, y2_r, orig_idxs, orig_idxs_r, q_type, is_support, \
-	       start_mapping, end_mapping, all_mapping
+	compact_y1 = data[COMPACT_Y1_KEY]
+	compact_y2 = data[COMPACT_Y2_KEY]
+	compact_to_orig_mapping = data[COMPACT_TO_ORIG_MAPPING_KEY]
+	return full_batch, \
+		   context_ques_idxs, compact_context_ques_idxs, \
+		   context_ques_masks, compact_context_ques_masks, \
+		   context_ques_segments, compact_context_ques_segments, \
+		   compact_answer_masks, \
+		   is_support, compact_is_support, has_support, \
+		   compact_all_mapping, \
+		   compact_y1, compact_y2, q_type, y1, y2, \
+		   compact_to_orig_mapping
 
 
-def build_iterator(config, buckets, batch_size, shuffle, num_word, num_char, p):
-	return DataIterator(buckets, batch_size, config.para_limit, config.ques_limit, config.char_limit,
-	                    shuffle, num_word, num_char, cpu=config.cpu, debug=config.debug, p=p)
+def build_iterator(config, bucket, shuffle):
+	return DataIterator(bucket, config.batch_size, shuffle, config.compact_para_cnt, debug=config.debug)
+
+
+def get_model_logits(model, context_ques_idxs, context_ques_masks, context_ques_segments,
+					 compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+					 compact_all_mapping, compact_answer_masks):
+	has_support_logits \
+		= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, None, task='locate')
+	start_logits, end_logits, type_logits, compact_is_support_logits \
+		= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+				compact_answer_masks, compact_all_mapping, task='reason')
+	return has_support_logits, compact_is_support_logits, start_logits, end_logits, type_logits
+
+
+def get_model_loss(has_support, compact_is_support, compact_y1, compact_y2, q_type,
+				   has_support_logits, compact_is_support_logits, start_logits, end_logits, type_logits):
+	loss_has_sp = nll(has_support_logits.view(-1, 2), has_support.view(-1))
+	loss_is_sp = nll(compact_is_support_logits.view(-1, 2), compact_is_support.view(-1))
+	loss_ans = nll(start_logits, compact_y1) + nll(end_logits, compact_y2) + nll(type_logits, q_type)
+	return loss_has_sp, loss_is_sp, loss_ans
+
+
+def logging(config, s, print_=True, log_=True):
+	if print_:
+		print(s)
+	if log_:
+		with open(os.path.join(config.save, 'log.txt'), 'a+') as f_log:
+			f_log.write(s + '\n')
 
 
 def train(config):
-	if config.debug:
-		word_mat = np.random.rand(395261, 300)
-	else:
-		with open(config.word_emb_file, "r") as fh:
-			word_mat = np.array(json.load(fh), dtype=np.float32)
-	with open(config.char_emb_file, "r") as fh:
-		char_mat = np.array(json.load(fh), dtype=np.float32)
 	with open(config.dev_eval_file, "r") as fh:
 		dev_eval_file = json.load(fh)
-	with open(config.idx2word_file, 'r') as fh:
-		idx2word_dict = json.load(fh)
 
-	random.seed(config.seed)
-	np.random.seed(config.seed)
-	torch.manual_seed(config.seed)
-	torch.cuda.manual_seed_all(config.seed)
+	set_random_seed(config)
 
 	config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
 	create_exp_dir(config.save)
 
-	def logging(s, print_=True, log_=True):
-		if print_:
-			print(s)
-		if log_:
-			with open(os.path.join(config.save, 'log.txt'), 'a+') as f_log:
-				f_log.write(s + '\n')
-
-	logging('Config')
+	logging(config, 'Config')
 	for k, v in config.__dict__.items():
-		logging('    - {} : {}'.format(k, v))
+		logging(config, '    - {} : {}'.format(k, v))
 
-	logging("Building model...")
-	train_buckets = get_buckets(config.train_record_file)
-	dev_buckets = get_buckets(config.dev_record_file)
+	logging(config, "Building model...")
+	train_datapoints = get_datapoints(config.train_record_file)
+	dev_datapoints = get_datapoints(config.dev_record_file)
 
-	model = HOPModel(config, word_mat, char_mat) if not config.baseline else SPModel(config, word_mat, char_mat)
+	model = HOPModel(config)
+	if not config.debug: model = model.cuda()
 
-	logging('nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
-	ori_model = model if config.cpu else model.cuda()
-	model = nn.DataParallel(ori_model)
+	logging(config, 'nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
 
-	lr = config.init_lr
-	optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.init_lr)
+	if config.debug:
+		optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.init_lr)
+	else:
+		grouped_params = [{'params': [param for name, param in model.named_parameters()
+		                              if 'bert' not in name and param.requires_grad]},
+		                  {'params': filter(lambda p: p.requires_grad, model.bert.parameters()), 'lr': config.bert_lr}]
+		optimizer = optim.Adam(grouped_params, lr=config.init_lr)
+
+	model = nn.DataParallel(model)
+
 	total_loss = 0
 	global_step = 0
 	best_dev_F1 = None
@@ -159,185 +132,289 @@ def train(config):
 	start_time = time.time()
 	eval_start_time = time.time()
 	model.train()
+	optimizer.zero_grad()
 
 	for epoch in range(config.epoch):
-		for data in build_iterator(config, train_buckets, config.batch_size, not config.debug, len(word_mat),
-		                           len(char_mat), config.p):
-			_, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
-			context_lens, y1, y1_r, y2, y2_r, _, _, q_type, is_support, start_mapping, end_mapping, all_mapping \
+		for data in build_iterator(config, train_datapoints, not config.debug):
+			full_batch, \
+			context_ques_idxs, compact_context_ques_idxs, \
+			context_ques_masks, compact_context_ques_masks, \
+			context_ques_segments, compact_context_ques_segments, \
+			compact_answer_masks, \
+			is_support, compact_is_support, has_support, \
+			compact_all_mapping, \
+			compact_y1, compact_y2, q_type, y1, y2, \
+			compact_to_orig_mapping \
 				= unpack(data)
 
-			if not config.baseline:
-				logit1, logit2, predict_support, predict_type = model_output(
-					config, model, None, context_idxs, context_idxs_r, ques_idxs,
-					context_char_idxs, context_char_idxs_r, ques_char_idxs, context_lens,
-					start_mapping, end_mapping, all_mapping, None, None, return_yp=False)
-			else:
-				logit1, logit2, predict_support, predict_type = baseline_output(
-					model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
-					start_mapping, end_mapping, all_mapping, None, return_yp=False)
-			if not config.baseline:
-				loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) +
-				          nll_sum(logit2, y2_r)) / context_idxs.size(0)
-			else:
-				loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) +
-				          nll_sum(logit2, y2)) / context_idxs.size(0)
-			loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
-			loss = loss_1 + config.sp_lambda * loss_2
+			has_support_logits, compact_is_support_logits, start_logits, end_logits, type_logits \
+				= get_model_logits(
+				model, context_ques_idxs, context_ques_masks, context_ques_segments,
+				compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+				compact_all_mapping, compact_answer_masks)
 
-			optimizer.zero_grad()
+			loss_has_sp, loss_is_sp, loss_ans \
+				= get_model_loss(has_support, compact_is_support, compact_y1, compact_y2, q_type,
+								 has_support_logits, compact_is_support_logits, start_logits, end_logits, type_logits)
+			loss = (config.has_sp_lambda * loss_has_sp +
+					config.is_sp_lambda * loss_is_sp +
+					config.ans_lambda * loss_ans) / config.aggregate_step
+
+
 			loss.backward()
-			optimizer.step()
-
 			total_loss += loss.item()
+
+			if (global_step + 1) % config.aggregate_step == 0:
+				optimizer.step()
+				optimizer.zero_grad()
 			global_step += 1
 
 			if global_step % config.period == 0:
-				cur_loss = total_loss / config.period
+				cur_loss = total_loss * config.aggregate_step / config.period
 				elapsed = time.time() - start_time
-				logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f}'.format(
-					epoch, global_step, lr, elapsed * 1000 / config.period, cur_loss))
+				logging(config, '| epoch {:3d} | step {:6d} | ms/batch {:5.2f} | train loss {:8.3f}'.format(
+					epoch, global_step, elapsed * 1000 / config.period, cur_loss))
 				total_loss = 0
 				start_time = time.time()
 
 			if global_step % config.checkpoint == 0:
 				model.eval()
 				metrics = evaluate_batch(
-					build_iterator(config, dev_buckets, math.ceil(config.batch_size / 2), False, len(word_mat),
-					               len(char_mat), config.p),
-					model, 1 if config.debug else 0, dev_eval_file, config)
+					build_iterator(config, dev_datapoints, False), model, 2 if config.debug else 0, dev_eval_file,
+					config)
 				model.train()
 
-				logging('-' * 89)
-				logging(
-					'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | SP_F1 {:.4f}'.format(
-						global_step // config.checkpoint, epoch, time.time() - eval_start_time,
-						metrics['loss'], metrics['exact_match'], metrics['f1'], metrics['sp_f1']))
-				logging('-' * 89)
+				logging(config, '-' * 89)
+				logging(config,
+						'| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | HAS_SP_Precision {:.4f} | HAS_SP_Recall {:.4f} | HAS_SP_F1 {:.4f} | IS_SP_F1 {:.4f}'.format(
+							global_step // config.checkpoint, epoch, time.time() - eval_start_time,
+							metrics['loss'], metrics['exact_match'], metrics['f1'],
+							metrics['has_sp_precision'], metrics['has_sp_recall'], metrics['has_sp_f1'],
+							metrics['is_sp_f1']))
+				logging(config, '-' * 89)
 
 				eval_start_time = time.time()
 
 				dev_F1 = metrics['f1']
 				if best_dev_F1 is None or dev_F1 > best_dev_F1:
 					best_dev_F1 = dev_F1
-					torch.save(ori_model.state_dict(), os.path.join(config.save, 'model.pt'))
+					torch.save(model.module.state_dict(), os.path.join(config.save, 'model.pt'))
 				if stop_train: break
-	logging('best_dev_F1 {}'.format(best_dev_F1))
+	logging(config, 'best_dev_F1 {}'.format(best_dev_F1))
+
+
+def select_reasoner_para(config, full_batch, has_support, ground_truth=False):
+	if ground_truth:
+		para_idxs = get_mixed_para_idxs(full_batch, config.compact_para_cnt)
+	else:
+		para_idxs = []
+		sorted_para_idxs = list(np.argsort(-has_support, axis=1))
+		for data_i, data in enumerate(full_batch):
+			para_idx = []
+			cur_ctx_ques_size = 3 + len(data[QUES_IDXS_KEY])
+			for para_i in sorted_para_idxs[data_i]:
+				if len(para_idx) >= config.compact_para_cnt:
+					break
+				# some data points may have less than 10 paragraphs
+				if para_i < len(data[HAS_SP_KEY]) and \
+						cur_ctx_ques_size + len(data[CONTEXT_IDXS_KEY][para_i]) <= BERT_LIMIT:
+					para_idx.append(para_i)
+					cur_ctx_ques_size += len(data[CONTEXT_IDXS_KEY][para_i])
+			para_idxs.append(para_idx)
+	return para_idxs
+
+
+def map_compact_to_orig_y(yp, compact_to_orig_mapping):
+	bsz = yp.shape[0]
+	return compact_to_orig_mapping['token'][np.arange(bsz), yp]
+
+
+def map_compact_to_orig_sp(sp, compact_to_orig_mapping):
+	bsz, sent_cnt = sp.shape
+	return compact_to_orig_mapping['sent'][np.expand_dims(np.arange(bsz), axis=1),
+										   np.expand_dims(np.arange(sent_cnt), axis=0)]
 
 
 @torch.no_grad()
 def evaluate_batch(data_source, model, max_batches, eval_file, config):
 	answer_dict = {}
-	sp_pred, sp_true = [], []
+	is_sp_pred, is_sp_true = [], []
+	has_sp_pred, has_sp_true = [], []
 	total_loss, step_cnt = 0, 0
 	iter = data_source
 	for step, data in enumerate(iter):
 		if step >= max_batches and max_batches > 0: break
 
-		full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
-		context_lens, y1, y1_r, y2, y2_r, orig_idxs, orig_idxs_r, q_type, is_support, \
-		start_mapping, end_mapping, all_mapping = unpack(data)
+		full_batch, \
+		context_ques_idxs, compact_context_ques_idxs, \
+		context_ques_masks, compact_context_ques_masks, \
+		context_ques_segments, compact_context_ques_segments, \
+		compact_answer_masks, \
+		is_support, compact_is_support, has_support, \
+		compact_all_mapping, \
+		compact_y1, compact_y2, q_type, y1, y2, \
+		compact_to_orig_mapping \
+			= unpack(data)
 
-		if not config.baseline:
-			logit1, logit2, predict_support, predict_type, yp1, yp2 = model_output(
-				config, model, full_batch, context_idxs, context_idxs_r, ques_idxs,
-				context_char_idxs, context_char_idxs_r, ques_char_idxs, context_lens,
-				start_mapping, end_mapping, all_mapping, orig_idxs, orig_idxs_r, return_yp=True)
-		else:
-			logit1, logit2, predict_support, predict_type, yp1, yp2 = baseline_output(
-				model, context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens,
-				start_mapping, end_mapping, all_mapping, orig_idxs, return_yp=True)
-		if not config.baseline:
-			loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1_r) + nll_sum(logit2, y2_r)) / context_idxs.size(
-				0) + \
-			       config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
-		else:
-			loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) + \
-			       config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
+		has_support_logits, compact_is_support_logits, start_logits, end_logits, type_logits \
+			= get_model_logits(
+			model, context_ques_idxs, context_ques_masks, context_ques_segments,
+			compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+			compact_all_mapping, compact_answer_masks)
 
-		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(predict_type.data.cpu().numpy(), 1))
+		loss_has_sp, loss_is_sp, loss_ans \
+			= get_model_loss(has_support, compact_is_support, compact_y1, compact_y2, q_type,
+							 has_support_logits, compact_is_support_logits, start_logits, end_logits, type_logits)
+		loss = (config.has_sp_lambda * loss_has_sp +
+				config.is_sp_lambda * loss_is_sp +
+				config.ans_lambda * loss_ans)
+		total_loss += loss.item()
+
+		para_idxs \
+			= select_reasoner_para(config, full_batch, has_support_logits[:, :, 1].data.cpu().numpy(),
+								   ground_truth=config.has_sp_lambda <= 0.0)
+		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
+		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
+			= build_compact_tensor_no_support(full_batch, para_idxs, not config.debug)
+		start_logits, end_logits, type_logits, compact_is_support_logits, yp1, yp2 \
+			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+					compact_answer_masks, compact_all_mapping, task='reason', return_yp=True)
+		yp1 = map_compact_to_orig_y(yp1.data.cpu().numpy(), compact_to_orig_mapping)
+		yp2 = map_compact_to_orig_y(yp2.data.cpu().numpy(), compact_to_orig_mapping)
+
+		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(type_logits.data.cpu().numpy(), 1))
 		answer_dict.update(answer_dict_)
 
-		is_support_np = is_support.data.cpu().numpy().flatten()
-		predict_support_np = np.rint(torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy().flatten()).astype(int)
+		is_support_np = is_support.data.cpu().numpy()
+		compact_predict_support_np = np.rint(torch.sigmoid(
+			compact_is_support_logits[:, :, :, 1]).squeeze(dim=1).data.cpu().numpy()).astype(int)
+		predict_support_np = get_pred_sp_np(is_support_np, compact_predict_support_np, compact_to_orig_mapping)
+		is_support_np = is_support_np.flatten()
+		predict_support_np = predict_support_np.flatten()
+
 		for sp_t, sp_p in zip(is_support_np, predict_support_np):
 			if sp_t == IGNORE_INDEX:
 				continue
-			sp_true.append(sp_t)
-			sp_pred.append(sp_p)
+			is_sp_true.append(sp_t)
+			is_sp_pred.append(sp_p)
 
-		total_loss += loss.item()
+		has_support_np = has_support.data.cpu().numpy()
+		for data_i, para_idx in enumerate(para_idxs):
+			for para_i, has_sp in enumerate(has_support_np[data_i]):
+				if has_sp == IGNORE_INDEX:
+					continue
+				has_sp_true.append(has_sp)
+				if para_i in para_idx:
+					has_sp_pred.append(1)
+				else:
+					has_sp_pred.append(0)
+
 		step_cnt += 1
 	loss = total_loss / step_cnt
 	metrics = evaluate(eval_file, answer_dict)
 	metrics['loss'] = loss
-	metrics['sp_f1'] = evaluate_sp(sp_true, sp_pred)
+	_, _, sp_f1 = evaluate_sp(is_sp_true, is_sp_pred)
+	has_sp_precision, has_sp_recall, has_sp_f1 = evaluate_sp(has_sp_true, has_sp_pred)
+	metrics['is_sp_f1'] = sp_f1
+	metrics['has_sp_precision'] = has_sp_precision
+	metrics['has_sp_recall'] = has_sp_recall
+	metrics['has_sp_f1'] = has_sp_f1
 	return metrics
 
 
+def get_pred_sp_np(is_support_np, compact_predict_support_np, compact_to_orig_mapping):
+	predict_support_np = np.zeros_like(is_support_np)
+	pred_sp_indices = map_compact_to_orig_sp(compact_predict_support_np, compact_to_orig_mapping)
+	filter = np.logical_and(pred_sp_indices[:, :, 0] != INVALID_INDEX, pred_sp_indices[:, :, 1] != INVALID_INDEX)
+	predict_support_np[
+		np.repeat(np.arange(pred_sp_indices.shape[0])[:, None], pred_sp_indices.shape[1], axis=1)[filter],
+		pred_sp_indices[:, :, 0][filter],
+		pred_sp_indices[:, :, 1][filter]] = compact_predict_support_np[filter]
+	return predict_support_np
+
+
 @torch.no_grad()
-def predict(data_source, model, eval_file, config, prediction_file):
+def predict(data_source, model, max_batches, eval_file, config):
 	answer_dict = {}
 	sp_dict = {}
 	sp_th = config.sp_threshold
 	for step, data in enumerate(tqdm(data_source)):
-		full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r, ques_char_idxs, \
-		context_lens, _, y1_r, _, y2_r, orig_idxs, orig_idxs_r, q_type, is_support, \
-		start_mapping, end_mapping, all_mapping = unpack(data)
+		if step >= max_batches and max_batches > 0: break
 
-		logit1, logit2, predict_support, predict_type, yp1, yp2 = model_output(
-			config, model, full_batch, context_idxs, context_idxs_r, ques_idxs, context_char_idxs, context_char_idxs_r,
-			ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, orig_idxs, orig_idxs_r,
-			return_yp=True)
+		full_batch, \
+		context_ques_idxs, compact_context_ques_idxs, \
+		context_ques_masks, compact_context_ques_masks, \
+		context_ques_segments, compact_context_ques_segments, \
+		compact_answer_masks, \
+		is_support, compact_is_support, has_support, \
+		compact_all_mapping, \
+		compact_y1, compact_y2, q_type, y1, y2, \
+		compact_to_orig_mapping \
+			= unpack(data)
 
-		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(predict_type.data.cpu().numpy(), 1))
+		has_support_logits \
+			= model(context_ques_idxs, context_ques_masks, context_ques_segments, None, None, task='locate')
+
+		para_idxs \
+			= select_reasoner_para(config, full_batch, has_support_logits[:, :, 1].data.cpu().numpy(),
+								   ground_truth=config.has_sp_lambda <= 0.0)
+		compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
+		compact_answer_masks, compact_all_mapping, compact_to_orig_mapping \
+			= build_compact_tensor_no_support(full_batch, para_idxs, not config.debug)
+		start_logits, end_logits, type_logits, compact_is_support_logits, yp1, yp2 \
+			= model(compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments,
+					compact_answer_masks, compact_all_mapping, task='reason', return_yp=True)
+		yp1 = map_compact_to_orig_y(yp1.data.cpu().numpy(), compact_to_orig_mapping)
+		yp2 = map_compact_to_orig_y(yp2.data.cpu().numpy(), compact_to_orig_mapping)
+
+		answer_dict_ = convert_tokens(eval_file, data['ids'], yp1, yp2, np.argmax(type_logits.data.cpu().numpy(), 1))
 		answer_dict.update(answer_dict_)
 
-		predict_support_np = torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy()
+		is_support_np = is_support.data.cpu().numpy()
+		compact_predict_support_np = np.rint(torch.sigmoid(
+			compact_is_support_logits[:, :, :, 1]).squeeze(dim=1).data.cpu().numpy()).astype(int)
+		predict_support_np = get_pred_sp_np(is_support_np, compact_predict_support_np, compact_to_orig_mapping)
+
 		for i in range(predict_support_np.shape[0]):
 			cur_sp_pred = []
 			cur_id = data['ids'][i]
 			for j in range(predict_support_np.shape[1]):
 				if j >= len(eval_file[cur_id]['sent2title_ids']): break
-				if predict_support_np[i, j] > sp_th:
-					cur_sp_pred.append(eval_file[cur_id]['sent2title_ids'][j])
+				for k in range(predict_support_np.shape[2]):
+					if k >= len(eval_file[cur_id]['sent2title_ids'][j]): break
+					if predict_support_np[i, j, k] > sp_th:
+						cur_sp_pred.append(eval_file[cur_id]['sent2title_ids'][j][k])
 			sp_dict.update({cur_id: cur_sp_pred})
 
 	prediction = {'answer': answer_dict, 'sp': sp_dict}
-	with open(prediction_file, 'w') as f:
+	with open(config.prediction_file, 'w') as f:
 		json.dump(prediction, f)
 
 
 def test(config):
-	with open(config.word_emb_file, "r") as fh:
-		word_mat = np.array(json.load(fh), dtype=np.float32)
-	with open(config.char_emb_file, "r") as fh:
-		char_mat = np.array(json.load(fh), dtype=np.float32)
-	if config.data_split == 'dev':
-		with open(config.dev_eval_file, "r") as fh:
-			dev_eval_file = json.load(fh)
-	else:
-		with open(config.test_eval_file, 'r') as fh:
-			dev_eval_file = json.load(fh)
-	with open(config.idx2word_file, 'r') as fh:
-		idx2word_dict = json.load(fh)
+	with open(eval('config.' + config.data_split + '_eval_file'), "r") as fh:
+		dev_eval_file = json.load(fh)
 
-	random.seed(config.seed)
-	np.random.seed(config.seed)
-	torch.manual_seed(config.seed)
-	torch.cuda.manual_seed_all(config.seed)
+	set_random_seed(config)
+	dev_datapoints = get_datapoints(eval('config.' + config.data_split + '_record_file'))
 
-	if config.data_split == 'dev':
-		dev_buckets = get_buckets(config.dev_record_file)
-	elif config.data_split == 'test':
-		dev_buckets = get_buckets(config.test_record_file)
-
-	model = HOPModel(config, word_mat, char_mat)
-	ori_model = model if config.cpu else model.cuda()
-	ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
-	model = nn.DataParallel(ori_model)
-
+	model = HOPModel(config)
+	if not config.debug: model = model.cuda()
+	model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
+	model = nn.DataParallel(model)
 	model.eval()
-	predict(
-		build_iterator(config, math.ceil(config.batch_size / 2), dev_buckets, False, len(word_mat), len(char_mat), 0.0),
-		model, dev_eval_file, config, config.prediction_file)
+
+	if config.prediction_file is not None:
+		predict(build_iterator(config, dev_datapoints, False), model, 2 if config.debug else 0, dev_eval_file, config)
+	else:
+		eval_start_time = time.time()
+		metrics = evaluate_batch(build_iterator(config, dev_datapoints, False), model, 2 if config.debug else 0,
+								 dev_eval_file, config)
+		logging(config, '-' * 89, log_=False)
+		logging(config,
+				'| time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f} | HAS_SP_Precision {:.4f} | HAS_SP_Recall {:.4f} | HAS_SP_F1 {:.4f} | IS_SP_F1 {:.4f}'.format(
+					time.time() - eval_start_time,
+					metrics['loss'], metrics['exact_match'], metrics['f1'],
+					metrics['has_sp_precision'], metrics['has_sp_recall'], metrics['has_sp_f1'],
+					metrics['is_sp_f1']), log_=False)
+		logging(config, '-' * 89, log_=False)

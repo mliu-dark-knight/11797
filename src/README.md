@@ -55,13 +55,13 @@ There are other keys that are not used in our code, but might be used for other 
 
 Preprocess the training and dev sets in the distractor setting:
 ```
-python main.py --mode prepro --data_file hotpot_train_v1.1.json --para_limit 2250 --data_split train
-python main.py --mode prepro --data_file hotpot_dev_distractor_v1.json --para_limit 2250 --data_split dev
+python main.py --mode prepro --data_file hotpot_train_v1.1.json --data_split train
+python main.py --mode prepro --data_file hotpot_dev_distractor_v1.json --data_split dev
 ```
 
 Preprocess the dev set in the full wiki setting:
 ```
-python main.py --mode prepro --data_file hotpot_dev_fullwiki_v1.json --data_split dev --fullwiki --para_limit 2250
+python main.py --mode prepro --data_file hotpot_dev_fullwiki_v1.json --data_split dev --fullwiki
 ```
 
 Note that the training set has to be preprocessed before the dev sets because some vocabulary and embedding files are produced
@@ -71,13 +71,12 @@ when the training set is processed.
 
 Train a model
 ```
-CUDA_VISIBLE_DEVICES=0 python main.py --mode train --para_limit 2250 --batch_size 24 --init_lr 0.1 --keep_prob 1.0 \ 
---sp_lambda 1.0
+CUDA_VISIBLE_DEVICES=0 python main.py --mode train --batch_size 4 --sp_lambda 1.0
 ```
 
 Our implementation supports running on multiple GPUs. Remove the `CUDA_VISIBLE_DEVICES` variable to run on all GPUs you have
 ```
-python main.py --mode train --para_limit 2250 --batch_size 24 --init_lr 0.1 --keep_prob 1.0 --sp_lambda 1.0
+python main.py --mode train --batch_size 4 --keep_prob 1.0 --sp_lambda 1.0
 ```
 
 You will be able to see the perf reach over 58 F1 on the dev set. Record the file name (something like `HOTPOT-20180924-160521`)

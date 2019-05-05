@@ -1,245 +1,251 @@
 import random
+from copy import deepcopy
 
 import numpy as np
 
-from utils.eval import *
 from utils.constants import *
+from utils.eval import *
 
 
-def overlap_span(start, end, y1, y2):
-	if start <= y1 < end or start <= y2 < end:
-		return True
-	return y1 <= start and y2 >= end
-
-
-def sample_sent(batch, para_limit, char_limit, p=0.0, batch_p=None, force_drop=False):
-	'''
-	:param batch:
-	:param para_limit:
-	:param char_limit:
-	:param p:
-	:param batch_p: an array of bool, drop sentence if True
-	:return:
-	'''
-	new_batch = []
-	for batch_i, data in enumerate(batch):
-		sent_cnt = len(data[START_END_FACTS_KEY])
-		drop = batch_p[batch_i] if batch_p is not None else np.random.rand(sent_cnt) < p
-		num_word_drop = 0
-		context_idxs = data[CONTEXT_IDXS_KEY].data.new(para_limit).fill_(0)
-		context_char_idxs = data[CONTEXT_CHAR_IDXS_KEY].data.new(para_limit, char_limit).fill_(0)
-		y1 = data[Y1_KEY]
-		y2 = data[Y2_KEY]
-		y_offset = 0
-		orig_idxs = np.zeros(para_limit).astype(int)
-		start_end_facts = []
-		for j, cur_sp_dp in enumerate(data[START_END_FACTS_KEY]):
-			if len(cur_sp_dp) == 3:
-				start, end, is_sp_flag = tuple(cur_sp_dp)
-				is_gold = False
-			else:
-				start, end, is_sp_flag, is_gold = tuple(cur_sp_dp)
-			if start < end:
-				if overlap_span(start, end, y1, y2):
-					# warning: do not change y1, y2 here
-					y_offset = num_word_drop
-					is_sp_flag = True
-				if (not drop[j]) or ((is_sp_flag or is_gold) and not force_drop):
-					context_idxs[start - num_word_drop:end - num_word_drop] = data[CONTEXT_IDXS_KEY][start:end]
-					context_char_idxs[start - num_word_drop:end - num_word_drop, :] \
-						= data[CONTEXT_CHAR_IDXS_KEY][start:end]
-					start_end_facts.append((start - num_word_drop, end - num_word_drop, is_sp_flag or is_gold))
-					orig_idxs[start - num_word_drop:end - num_word_drop] = np.arange(start, end)
-				else:
-					num_word_drop += (end - start)
-		new_data = {
-			CONTEXT_IDXS_KEY: context_idxs,
-			CONTEXT_CHAR_IDXS_KEY: context_char_idxs,
-			QUES_IDXS_KEY: data[QUES_IDXS_KEY],
-			QUES_CHAR_IDXS_KEY: data[QUES_CHAR_IDXS_KEY],
-			ORIG_IDXS: orig_idxs,
-			ID_KEY: data[ID_KEY],
-			START_END_FACTS_KEY: start_end_facts,
-		}
-		if not force_drop:
-			if y1 < 0:
-				y_offset = 0
-			y1 = data[Y1_KEY] - y_offset
-			y2 = data[Y2_KEY] - y_offset
-			assert y1 < (context_idxs > 0).long().sum().item() and y2 < (context_idxs > 0).long().sum().item()
-			new_data.update({
-				Y1_KEY: y1,
-				Y2_KEY: y2,
-			})
-		new_batch.append(new_data)
-	return new_batch
-
-
-def build_ques_tensor(batch, char_limit, cuda):
+def build_compact_tensor(batch, cuda, para_idxs):
 	bsz = len(batch)
-	max_q_len = max([(data[QUES_IDXS_KEY] > 0).long().sum().item() for data in batch])
-	assert max_q_len > 0
-	ques_idxs = torch.LongTensor(bsz, max_q_len)
-	ques_char_idxs = torch.LongTensor(bsz, max_q_len, char_limit)
+	compact_ctx_ques_sizes = []
+	compact_max_sent_cnt = 0
+	for data_i, data in enumerate(batch):
+		assert len(data[QUES_IDXS_KEY]) <= QUES_LIMIT
+		cur_compact_ctx_ques_size = len(data[QUES_IDXS_KEY]) + 3 + \
+									sum([len(data[CONTEXT_IDXS_KEY][i]) for i in para_idxs[data_i]])
+		compact_ctx_ques_sizes.append(cur_compact_ctx_ques_size)
+		compact_max_sent_cnt = max(compact_max_sent_cnt,
+								   sum([len(data[START_END_FACTS_KEY][i]) for i in para_idxs[data_i]]))
+	compact_max_ctx_ques_size = max(compact_ctx_ques_sizes)
+	assert compact_max_ctx_ques_size <= BERT_LIMIT
+
+	compact_context_ques_idxs = torch.LongTensor(bsz, 1, compact_max_ctx_ques_size).fill_(UNK_IDX)
+	compact_context_ques_masks = torch.zeros(bsz, 1, compact_max_ctx_ques_size)
+	compact_context_ques_segments = torch.LongTensor(bsz, 1, compact_max_ctx_ques_size).fill_(1)
+	compact_all_mapping = torch.zeros(bsz, 1, compact_max_sent_cnt, compact_max_ctx_ques_size)
+	compact_is_support = torch.LongTensor(bsz, 1, compact_max_sent_cnt).fill_(IGNORE_INDEX)
+	compact_answer_masks = torch.zeros(bsz, 1, compact_max_ctx_ques_size)
+	# make sure not two entries pointing to the same positions
+	compact_to_orig_mapping = {
+		'token': np.full((bsz, compact_max_ctx_ques_size, 2), INVALID_INDEX, dtype=int),
+		'sent': np.full((bsz, compact_max_sent_cnt, 2), INVALID_INDEX, dtype=int)
+	}
+
+	for data_i, data in enumerate(batch):
+		compact_context_ques_idxs[data_i, :, 0: 1] = CLS_IDX
+		compact_context_ques_idxs[data_i, :, 1: 1 + len(data[QUES_IDXS_KEY])] = data[QUES_IDXS_KEY]
+		compact_context_ques_idxs[data_i, :, 1 + len(data[QUES_IDXS_KEY]): 2 + len(data[QUES_IDXS_KEY])] = SEP_IDX
+		compact_context_ques_segments[data_i, :, : 2 + len(data[QUES_IDXS_KEY])] = 0
+		compact_context_ques_masks[data_i, :, : compact_ctx_ques_sizes[data_i]] = 0
+		compact_answer_masks[data_i, :, 2 + len(data[QUES_IDXS_KEY]): compact_ctx_ques_sizes[data_i] - 1] = 1.
+
+		token_offset = 2 + len(data[QUES_IDXS_KEY])
+		sent_offset = 0
+		for para_i in para_idxs[data_i]:
+			para_ctx_size = len(data[CONTEXT_IDXS_KEY][para_i])
+			compact_context_ques_idxs[data_i, :, token_offset: para_ctx_size + token_offset] \
+				= data[CONTEXT_IDXS_KEY][para_i]
+
+			for sent_i, sent in enumerate(data[START_END_FACTS_KEY][para_i]):
+				raw_start, raw_end, is_sp = sent
+				compact_is_support[data_i, :, sent_i + sent_offset] = int(is_sp)
+				compact_all_mapping[data_i, :, sent_i + sent_offset, raw_start + token_offset: raw_end + token_offset] \
+					= 1.
+				compact_to_orig_mapping['sent'][data_i, sent_i + sent_offset, :] = [para_i, sent_i]
+			compact_to_orig_mapping['token'][data_i, token_offset: token_offset + para_ctx_size, 0] = para_i
+			compact_to_orig_mapping['token'][data_i, token_offset: token_offset + para_ctx_size, 1] \
+				= np.arange(para_ctx_size)
+
+			token_offset += para_ctx_size
+			sent_offset += len(data[START_END_FACTS_KEY][para_i])
+
+		compact_context_ques_idxs[data_i, :, compact_ctx_ques_sizes[data_i] - 1: compact_ctx_ques_sizes[data_i]] \
+			= SEP_IDX
+
 	if cuda:
-		ques_idxs = ques_idxs.cuda()
-		ques_char_idxs = ques_char_idxs.cuda()
-	for i in range(len(batch)):
-		ques_idxs[i].copy_(batch[i][QUES_IDXS_KEY][:max_q_len])
-		ques_char_idxs[i].copy_(batch[i][QUES_CHAR_IDXS_KEY][:max_q_len])
-	return ques_idxs, ques_char_idxs
+		compact_context_ques_idxs = compact_context_ques_idxs.cuda()
+		compact_context_ques_masks = compact_context_ques_masks.cuda()
+		compact_context_ques_segments = compact_context_ques_segments.cuda()
+		compact_answer_masks = compact_answer_masks.cuda()
+		compact_all_mapping = compact_all_mapping.cuda()
+		compact_is_support = compact_is_support.cuda()
+
+	return compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
+		   compact_answer_masks, compact_is_support, compact_all_mapping, compact_to_orig_mapping
 
 
-def build_ctx_tensor(batch, char_limit, cuda):
+def build_compact_tensor_no_support(batch, para_idxs, cuda):
+	compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, compact_answer_masks, _, compact_all_mapping, compact_to_orig_mapping \
+		= build_compact_tensor(batch, cuda, para_idxs)
+	return compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, \
+		   compact_answer_masks, compact_all_mapping, compact_to_orig_mapping
+
+
+def get_mixed_para_idxs(batch, compact_para_cnt):
+	pure_para_idxs = [[i for i, has_sp_fact in enumerate(data[HAS_SP_KEY]) if has_sp_fact] for data in batch]
+	left_out_para_idxs = [[i for i, has_sp_fact in enumerate(data[HAS_SP_KEY]) if not has_sp_fact] for data in batch]
+	mixed_para_idxs = []
+	for pure_para_idx, left_out_para_idx, data in zip(pure_para_idxs, left_out_para_idxs, batch):
+		ctx_ques_size = 3 + len(data[QUES_IDXS_KEY]) + sum([len(data[CONTEXT_IDXS_KEY][i]) for i in pure_para_idx])
+		mixed_para_idx = deepcopy(pure_para_idx)
+		for i in left_out_para_idx:
+			if len(mixed_para_idx) >= compact_para_cnt:
+				break
+			if ctx_ques_size + len(data[CONTEXT_IDXS_KEY][i]) <= BERT_LIMIT:
+				mixed_para_idx.append(i)
+				ctx_ques_size += len(data[CONTEXT_IDXS_KEY][i])
+		random.shuffle(mixed_para_idx)
+		mixed_para_idxs.append(mixed_para_idx)
+	return mixed_para_idxs
+
+
+def build_tensor(batch, compact_para_cnt, cuda):
 	bsz = len(batch)
-	max_c_len = max([(data[CONTEXT_IDXS_KEY] > 0).long().sum().item() for data in batch])
-	max_sent_cnt = max([len(data[START_END_FACTS_KEY]) for data in batch])
-	assert max_c_len > 0 and max_sent_cnt > 0
-	context_idxs = torch.LongTensor(bsz, max_c_len)
-	context_char_idxs = torch.LongTensor(bsz, max_c_len, char_limit)
-	context_lens = torch.LongTensor(bsz)
-	start_mapping = torch.zeros(bsz, max_c_len, max_sent_cnt)
-	end_mapping = torch.zeros(bsz, max_c_len, max_sent_cnt)
-	all_mapping = torch.zeros(bsz, max_c_len, max_sent_cnt)
-	is_support = torch.LongTensor(bsz, max_sent_cnt).fill_(IGNORE_INDEX)
-	orig_idxs = np.zeros((bsz, max_c_len)).astype(int)
-	if cuda:
-		context_idxs = context_idxs.cuda()
-		context_char_idxs = context_char_idxs.cuda()
-		context_lens = context_lens.cuda()
-		start_mapping = start_mapping.cuda()
-		end_mapping = end_mapping.cuda()
-		all_mapping = all_mapping.cuda()
-		is_support = is_support.cuda()
-	for i in range(len(batch)):
-		context_idxs[i].copy_(batch[i][CONTEXT_IDXS_KEY][:max_c_len])
-		context_char_idxs[i].copy_(batch[i][CONTEXT_CHAR_IDXS_KEY][:max_c_len])
-		context_lens[i] = (batch[i][CONTEXT_IDXS_KEY] > 0).long().sum()
-		orig_idxs[i] = np.copy(batch[i][ORIG_IDXS][:max_c_len])
+	# indices of all paragraphs that are fed into reasoner
+	para_idxs = get_mixed_para_idxs(batch, compact_para_cnt)
+	max_ctx_ques_size = 0
+	max_para_cnt = 0
+	# max number of sentences per paragraph
+	max_sent_cnt = 0
+	for data_i, data in enumerate(batch):
+		assert len(data[QUES_IDXS_KEY]) <= QUES_LIMIT
+		max_para_cnt = max(max_para_cnt, len(data[CONTEXT_IDXS_KEY]))
+		for para_i, para in enumerate(data[CONTEXT_IDXS_KEY]):
+			assert len(para) <= PARA_LIMIT
+			max_ctx_ques_size = max(max_ctx_ques_size, 3 + len(para) + len(data[QUES_IDXS_KEY]))
+			max_sent_cnt = max(max_sent_cnt, len(data[START_END_FACTS_KEY][para_i]))
 
-		for j, cur_sp_dp in enumerate(batch[i][START_END_FACTS_KEY]):
-			if len(cur_sp_dp) == 3:
-				start, end, is_sp_flag = tuple(cur_sp_dp)
-			else:
-				start, end, is_sp_flag, is_gold = tuple(cur_sp_dp)
-			if start < end:
-				start_mapping[i, start, j] = 1
-				end_mapping[i, end - 1, j] = 1
-				all_mapping[i, start:end, j] = 1
-				is_support[i, j] = int(is_sp_flag)
-	return context_idxs, context_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, is_support, orig_idxs
+	context_ques_idxs = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(UNK_IDX)
+	context_ques_masks = torch.zeros(bsz, max_para_cnt, max_ctx_ques_size)
+	context_ques_segments = torch.LongTensor(bsz, max_para_cnt, max_ctx_ques_size).fill_(1)
+	is_support = torch.LongTensor(bsz, max_para_cnt, max_sent_cnt).fill_(IGNORE_INDEX)
+	has_support = torch.LongTensor(bsz, max_para_cnt).fill_(IGNORE_INDEX)
+	y1 = np.zeros((bsz, 2), dtype=int)
+	y2 = np.zeros((bsz, 2), dtype=int)
+	compact_y1 = torch.LongTensor(bsz).fill_(IGNORE_INDEX)
+	compact_y2 = torch.LongTensor(bsz).fill_(IGNORE_INDEX)
+	q_type = torch.LongTensor(bsz).fill_(IGNORE_INDEX)
 
-def build_ans_tensor(batch, cuda):
-	bsz = len(batch)
-	y1 = torch.LongTensor(bsz)
-	y2 = torch.LongTensor(bsz)
-	q_type = torch.LongTensor(bsz)
-	for i in range(len(batch)):
-		if batch[i][Y1_KEY] >= 0:
-			y1[i] = batch[i][Y1_KEY]
-			y2[i] = batch[i][Y2_KEY]
-			q_type[i] = 0
-		elif batch[i][Y1_KEY] == -1:
-			y1[i] = IGNORE_INDEX
-			y2[i] = IGNORE_INDEX
-			q_type[i] = 1
-		elif batch[i][Y1_KEY] == -2:
-			y1[i] = IGNORE_INDEX
-			y2[i] = IGNORE_INDEX
-			q_type[i] = 2
-		elif batch[i][Y1_KEY] == -3:
-			y1[i] = IGNORE_INDEX
-			y2[i] = IGNORE_INDEX
-			q_type[i] = 3
+	for data_i, data in enumerate(batch):
+		context_ques_idxs[data_i, :, 0: 1] = CLS_IDX
+		context_ques_idxs[data_i, :, 1: 1 + len(data[QUES_IDXS_KEY])] = data[QUES_IDXS_KEY]
+		context_ques_idxs[data_i, :, 1 + len(data[QUES_IDXS_KEY]): 2 + len(data[QUES_IDXS_KEY])] = SEP_IDX
+		context_ques_segments[data_i, :, : 2 + len(data[QUES_IDXS_KEY])] = 0
+
+		for para_i, para in enumerate(data[CONTEXT_IDXS_KEY]):
+			context_ques_idxs[data_i, para_i, 2 + len(data[QUES_IDXS_KEY]): 2 + len(data[QUES_IDXS_KEY]) + len(para)] \
+				= para
+			context_ques_idxs[data_i, :, 2 + len(data[QUES_IDXS_KEY]) + len(para):
+										 3 + len(data[QUES_IDXS_KEY]) + len(para)] = SEP_IDX
+			context_ques_masks[data_i, para_i, : 3 + len(data[QUES_IDXS_KEY]) + len(para)] = 1
+			has_support[data_i, para_i] = int(data[HAS_SP_KEY][para_i])
+
+			for sent_i, sent in enumerate(data[START_END_FACTS_KEY][para_i]):
+				raw_start, raw_end, is_sp = sent
+				is_support[data_i, para_i, sent_i] = int(is_sp)
+
+		# build answer span and question type
+		token_offset = 2 + len(data[QUES_IDXS_KEY])
+		sent_offset = 0
+		for compact_para_i, para_i in enumerate(para_idxs[data_i]):
+			para_ctx_size = len(data[CONTEXT_IDXS_KEY][para_i])
+			if data[Y1_KEY][0] == para_i and data[Y1_KEY][1] >= 0:
+				compact_y1[data_i] = token_offset + data[Y1_KEY][1]
+				compact_y2[data_i] = token_offset + data[Y2_KEY][1]
+			token_offset += para_ctx_size
+			sent_offset += len(data[START_END_FACTS_KEY][para_i])
+
+		y1[data_i] = data[Y1_KEY]
+		y2[data_i] = data[Y2_KEY]
+		if data[Y1_KEY][1] >= 0:
+			q_type[data_i] = 0
+		elif data[Y1_KEY][1] == -1:
+			q_type[data_i] = 1
+		elif data[Y1_KEY][1] == -2:
+			q_type[data_i] = 2
+		elif data[Y1_KEY][1] == -3:
+			# ground truth sentence is dropped from dev set
+			pass
 		else:
 			assert False
+
+	# TODO: start_mapping, end_mapping, is_support, orig_idxs
 	if cuda:
-		y1 = y1.cuda()
-		y2 = y2.cuda()
+		context_ques_idxs = context_ques_idxs.cuda()
+		context_ques_masks = context_ques_masks.cuda()
+		context_ques_segments = context_ques_segments.cuda()
+		is_support = is_support.cuda()
+		has_support = has_support.cuda()
+		compact_y1 = compact_y1.cuda()
+		compact_y2 = compact_y2.cuda()
 		q_type = q_type.cuda()
-	return y1, y2, q_type
+
+	compact_context_ques_idxs, compact_context_ques_masks, compact_context_ques_segments, compact_answer_masks, compact_is_support, compact_all_mapping, compact_to_orig_mapping \
+		= build_compact_tensor(batch, cuda, para_idxs)
+
+	return context_ques_idxs, compact_context_ques_idxs, \
+		   context_ques_masks, compact_context_ques_masks, \
+		   context_ques_segments, compact_context_ques_segments, \
+		   compact_answer_masks, \
+		   is_support, compact_is_support, has_support, \
+		   compact_all_mapping, \
+		   compact_y1, compact_y2, q_type, y1, y2, \
+		   compact_to_orig_mapping
 
 
 class DataIterator(object):
-	def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, num_word, num_char,
-	             cpu=False, debug=False, p=0.0):
-		self.buckets = buckets
+	def __init__(self, datapoints, bsz, shuffle, compact_para_cnt, debug=False):
+		self.datapoints = datapoints
 		self.bsz = bsz
-		if para_limit is not None and ques_limit is not None:
-			self.para_limit = para_limit
-			self.ques_limit = ques_limit
-		else:
-			para_limit, ques_limit = 0, 0
-			for bucket in buckets:
-				for dp in bucket:
-					para_limit = max(para_limit, dp[CONTEXT_IDXS_KEY].size(0))
-					ques_limit = max(ques_limit, dp[QUES_IDXS_KEY].size(0))
-			self.para_limit, self.ques_limit = para_limit, ques_limit
-		self.char_limit = char_limit
-		self.num_word = num_word
-		self.num_char = num_char
 
-		self.num_buckets = len(self.buckets)
-		self.bkt_pool = [i for i in range(self.num_buckets) if len(self.buckets[i]) > 0]
 		if shuffle:
-			for i in range(self.num_buckets):
-				random.shuffle(self.buckets[i])
-		self.bkt_ptrs = [0 for i in range(self.num_buckets)]
+			random.shuffle(self.datapoints)
+		self.bkt_ptr = 0
 		self.shuffle = shuffle
-		self.cpu = cpu
+		self.compact_para_cnt = compact_para_cnt
 		self.debug = debug
-		self.p = p
 
 	def __iter__(self):
 		while True:
-			if len(self.bkt_pool) == 0: break
-			bkt_id = random.choice(self.bkt_pool) if self.shuffle else self.bkt_pool[0]
-			start_id = self.bkt_ptrs[bkt_id]
-			cur_bucket = self.buckets[bkt_id]
-			cur_bsz = min(self.bsz, len(cur_bucket) - start_id)
+			start_id = self.bkt_ptr
+			cur_bsz = min(self.bsz, len(self.datapoints) - start_id)
 
-			cur_batch = cur_bucket[start_id: start_id + cur_bsz]
-			# update support flag
-			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit,
-			                        p=self.p if self.debug else 0., force_drop=False)
-			cur_batch.sort(key=lambda x: (x[CONTEXT_IDXS_KEY] > 0).long().sum(), reverse=True)
-			full_batch = cur_batch
+			cur_batch = self.datapoints[start_id: start_id + cur_bsz]
 
 			ids = [data[ID_KEY] for data in cur_batch]
-			context_idxs, context_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, is_support, orig_idxs \
-				= build_ctx_tensor(cur_batch, self.char_limit, not self.cpu)
-			ques_idxs, ques_char_idxs = build_ques_tensor(cur_batch, self.char_limit, not self.cpu)
-			y1, y2, _ = build_ans_tensor(cur_batch, not self.cpu)
+			context_ques_idxs, compact_context_ques_idxs, \
+			context_ques_masks, compact_context_ques_masks, \
+			context_ques_segments, compact_context_ques_segments, \
+			compact_answer_masks, \
+			is_support, compact_is_support, has_support, \
+			compact_all_mapping, \
+			compact_y1, compact_y2, q_type, y1, y2, compact_to_orig_mapping \
+				= build_tensor(cur_batch, self.compact_para_cnt, not self.debug)
 
-			cur_batch = sample_sent(cur_batch, self.para_limit, self.char_limit, p=self.p, force_drop=False)
-
-			context_idxs_r, context_char_idxs_r, _, _, _, _, _, orig_idxs_r \
-				= build_ctx_tensor(cur_batch, self.char_limit, not self.cpu)
-			y1_r, y2_r, q_type = build_ans_tensor(cur_batch, not self.cpu)
-
-			self.bkt_ptrs[bkt_id] += cur_bsz
-			if self.bkt_ptrs[bkt_id] >= len(cur_bucket):
-				self.bkt_pool.remove(bkt_id)
+			self.bkt_ptr += cur_bsz
+			if self.bkt_ptr >= len(self.datapoints):
+				break
 
 			yield {
-				FULL_BATCH_KEY: full_batch,
-				CONTEXT_IDXS_KEY: context_idxs.contiguous().clamp(0, self.num_word - 1),
-				CONTEXT_IDXS_R_KEY: context_idxs_r.contiguous().clamp(0, self.num_word - 1),
-				QUES_IDXS_KEY: ques_idxs.contiguous().clamp(0, self.num_word - 1),
-				CONTEXT_CHAR_IDXS_KEY: context_char_idxs.contiguous().clamp(0, self.num_char - 1),
-				CONTEXT_CHAR_IDXS_R_KEY: context_char_idxs_r.contiguous().clamp(0, self.num_char - 1),
-				QUES_CHAR_IDXS_KEY: ques_char_idxs.contiguous().clamp(0, self.num_char - 1),
-				CONTEXT_LENS_KEY: context_lens,
+				FULL_BATCH_KEY: cur_batch,
 				IDS_KEY: ids,
-				IS_SUPPORT_KEY: is_support.contiguous(),
-				START_MAPPING_KEY: start_mapping,
-				END_MAPPING_KEY: end_mapping,
-				ALL_MAPPING_KEY: all_mapping,
-				Y1_KEY: y1,
-				Y1_R_KEY: y1_r,
-				Y2_KEY: y2,
-				Y2_R_KEY: y2_r,
-				ORIG_IDXS: orig_idxs,
-				ORIG_IDXS_R: orig_idxs_r,
+				CONTEXT_QUES_IDXS_KEY: context_ques_idxs,
+				COMPACT_CONTEXT_QUES_IDXS_KEY: compact_context_ques_idxs,
+				CONTEXT_QUES_MASKS_KEY: context_ques_masks,
+				COMPACT_CONTEXT_QUES_MASKS_KEY: compact_context_ques_masks,
+				CONTEXT_QUES_SEGMENTS_KEY: context_ques_segments,
+				COMPACT_CONTEXT_QUES_SEGMENTS_KEY: compact_context_ques_segments,
+				COMPACT_ANSWER_MASKS_KEY: compact_answer_masks,
 				Q_TYPE_KEY: q_type,
+				IS_SUPPORT_KEY: is_support,
+				COMPACT_IS_SUPPORT_KEY: compact_is_support,
+				HAS_SP_KEY: has_support,
+				COMPACT_ALL_MAPPING_KEY: compact_all_mapping,
+				COMPACT_Y1_KEY: compact_y1,
+				COMPACT_Y2_KEY: compact_y2,
+				Y1_KEY: y1,
+				Y2_KEY: y2,
+				COMPACT_TO_ORIG_MAPPING_KEY: compact_to_orig_mapping,
 			}
